@@ -149,7 +149,7 @@ module skip::entrypoint {
 		
 		// add move msgexecute into response messages 
 		cosmos::move_execute(
-			signer::address_of(account),
+			account,
 			swap_venue_info.module_address, 
 			swap_venue_info.module_name, 
 			swap_function_name,
@@ -166,7 +166,7 @@ module skip::entrypoint {
 		);
 
 		cosmos::move_execute(
-			signer::address_of(account),
+			account,
 			@skip,
 			string::utf8(b"entrypoint"),
 			string::utf8(b"post_action"),
@@ -262,7 +262,7 @@ module skip::entrypoint {
 				args
 			) = unpack_action_contract_args(action_args);
 			cosmos::move_execute(
-				account_addr,
+				account,
 				module_address,
 				module_name,
 				function_name,
@@ -304,9 +304,9 @@ module skip::entrypoint {
 	fun unpack_action_contract_args(action_args: vector<vector<u8>>): (address, String, String, vector<String>, vector<vector<u8>>) {
 		assert!(vector::length(&action_args) == 5, error::invalid_argument(0));
 		let arg = vector::pop_back(&mut action_args);
-		let args: vector<vector<u8>> = from_bcs::from_bytes<vector<vector<u8>>>(base64::decode_bytes(arg));
+		let args: vector<vector<u8>> = from_bcs::to_vector_bytes(base64::decode_bytes(arg));
 		let arg = vector::pop_back(&mut action_args);
-		let type_args: vector<String> = from_bcs::from_bytes<vector<String>>(base64::decode_bytes(arg));
+		let type_args: vector<String> = from_bcs::to_vector_string(base64::decode_bytes(arg));
 		let arg = vector::pop_back(&mut action_args);
 		let function_name: String = from_bcs::to_string(base64::decode_bytes(arg));
 		let arg = vector::pop_back(&mut action_args);
@@ -367,17 +367,17 @@ module skip::entrypoint {
 		action_args: vector<vector<u8>>
 	): vector<String> {
 		let args = vector<String>[];
-		vector::push_back(&mut args, base64::encode_bytes_to_string(bcs::to_bytes(&swap_venue_name)));
-		vector::push_back(&mut args, base64::encode_bytes_to_string(bcs::to_bytes(&swap_function_name)));
-		vector::push_back(&mut args, base64::encode_bytes_to_string(bcs::to_bytes(&user_swap_coin)));
-		vector::push_back(&mut args, base64::encode_bytes_to_string(bcs::to_bytes(&user_swap_amount)));
-		vector::push_back(&mut args, base64::encode_bytes_to_string(bcs::to_bytes(&pools)));
-		vector::push_back(&mut args, base64::encode_bytes_to_string(bcs::to_bytes(&coins)));
-		vector::push_back(&mut args, base64::encode_bytes_to_string(bcs::to_bytes(&min_swap_coin)));
-		vector::push_back(&mut args, base64::encode_bytes_to_string(bcs::to_bytes(&min_swap_amount)));
-		vector::push_back(&mut args, base64::encode_bytes_to_string(bcs::to_bytes(&timeout_timestamp)));
-		vector::push_back(&mut args, base64::encode_bytes_to_string(bcs::to_bytes(&post_swap_action)));
-		vector::push_back(&mut args, base64::encode_bytes_to_string(bcs::to_bytes(&action_args)));
+		vector::push_back(&mut args, base64::to_string(bcs::to_bytes(&swap_venue_name)));
+		vector::push_back(&mut args, base64::to_string(bcs::to_bytes(&swap_function_name)));
+		vector::push_back(&mut args, base64::to_string(bcs::to_bytes(&user_swap_coin)));
+		vector::push_back(&mut args, base64::to_string(bcs::to_bytes(&user_swap_amount)));
+		vector::push_back(&mut args, base64::to_string(bcs::to_bytes(&pools)));
+		vector::push_back(&mut args, base64::to_string(bcs::to_bytes(&coins)));
+		vector::push_back(&mut args, base64::to_string(bcs::to_bytes(&min_swap_coin)));
+		vector::push_back(&mut args, base64::to_string(bcs::to_bytes(&min_swap_amount)));
+		vector::push_back(&mut args, base64::to_string(bcs::to_bytes(&timeout_timestamp)));
+		vector::push_back(&mut args, base64::to_string(bcs::to_bytes(&post_swap_action)));
+		vector::push_back(&mut args, base64::to_string(bcs::to_bytes(&action_args)));
 		
 		args
 	}
@@ -428,7 +428,7 @@ module skip::entrypoint {
 
 	#[test]
 	public fun pack_unpack_action_transfer_args() {
-		let addr = @0xDB92E64B5C51A8EDCA13034D412806220B0063E1;
+		let addr = @0x123;
 		
 		let packed_args = pack_action_transfer_args(addr);
 		let unpacked_args = unpack_action_transfer_args(packed_args);
@@ -439,7 +439,7 @@ module skip::entrypoint {
 	#[test]
 	public fun pack_unpack_action_ibctransfer_args() {
 		let source_channel = string::utf8(b"channel-0");
-		let receiver = string::utf8(b"init1rh03awuuy7t82n4pmtdaa6gj4duneaj8gghkqp");
+		let receiver = string::utf8(b"init...");
 		let revision_num=0;
 		let revision_height = 4824;
 		let memo=string::utf8(b"");
@@ -455,7 +455,7 @@ module skip::entrypoint {
 
 	#[test]
 	public fun pack_unpack_action_contract_args() {
-		let module_addr = @0xDB92E64B5C51A8EDCA13034D412806220B0063E1;
+		let module_addr = @0x123;
 		let module_name = string::utf8(b"simplecount");
 		let function_name = string::utf8(b"increase");
 		let type_args = vector<String>[];
@@ -468,28 +468,5 @@ module skip::entrypoint {
 		assert!(function_name == c, 1);
 		assert!(type_args == d, 1);
 		assert!(args == e, 1);
-
-		// assert!(addr == unpacked_args, 1);
-	}
-
-	use std::debug;
-	#[test]
-	public fun pack_swap_and_action_args_test() {
-		let swap_venue_name = string::utf8(b"initiadex");
-		let swap_function_name = string::utf8(b"swap_exact_asset_in");
-		let user_swap_coin = @0x87921a2b50a403156cf8afad768fd6dfde26b913e2ee460b1015e5f7ef1755d0;
-		let user_swap_amount = 10000;
-		let pools = vector<address>[@0x2a9ef9577c5fb36d2991d9fba9cb65ed8bb3f49b1719021ad32dcf1c186714dd];
-		let coins = vector<address>[@0x87921a2b50a403156cf8afad768fd6dfde26b913e2ee460b1015e5f7ef1755d0, @0x8e4733bdabcf7d4afc3d14f0dd46c9bf52fb0fce9e4b996c939e195b8bc891d9];
-		let min_swap_coin = @0x8e4733bdabcf7d4afc3d14f0dd46c9bf52fb0fce9e4b996c939e195b8bc891d9;
-		let min_swap_amount = 100;
-		let timeout_timestamp = 1707077864911000000;
-		let post_swap_action = 0;
-		
-		let addr = @0xDB92E64B5C51A8EDCA13034D412806220B0063E1;
-		let action_args = pack_action_transfer_args(addr);
-
-		let packed_args = pack_swap_and_action_args(swap_venue_name, swap_function_name, user_swap_coin, user_swap_amount, pools, coins, min_swap_coin, min_swap_amount, timeout_timestamp, post_swap_action, action_args);
-		debug::print(&packed_args);
 	}
 }
