@@ -5,7 +5,7 @@ module skip::initiadex {
 
 	use initia_std::string::{Self, String};
 	use initia_std::dex::{Self, Config};
-	use initia_std::decimal128::{Self, Decimal128};
+	use initia_std::decimal256::{Self, Decimal256};
     use initia_std::primary_fungible_store;
 	use initia_std::coin;
 	use initia_std::fungible_asset::Metadata;
@@ -18,12 +18,12 @@ module skip::initiadex {
 
 	struct SimulateSwapExactAssetInResponse has copy, drop, store {
 		amount_out: u64,
-		spot_price: Option<Decimal128>,
+		spot_price: Option<Decimal256>,
 	}
 
 	struct SimulateSwapExactAssetOutResponse has copy, drop, store {
 		amount_in: u64,
-		spot_price: Option<Decimal128>,
+		spot_price: Option<Decimal256>,
 	}
 
 	public entry fun swap_exact_asset_in(
@@ -64,7 +64,7 @@ module skip::initiadex {
 	}
 
 	public fun unpack_simulate_swap_exact_asset_in_response(response: &SimulateSwapExactAssetInResponse)
-	: (u64, Option<Decimal128>) {
+	: (u64, Option<Decimal256>) {
 		(
 			response.amount_out,
 			response.spot_price,
@@ -72,7 +72,7 @@ module skip::initiadex {
 	}
 
 	public fun unpack_simulate_swap_exact_asset_out_response(response: &SimulateSwapExactAssetOutResponse)
-	: (u64, Option<Decimal128>) {
+	: (u64, Option<Decimal256>) {
 		(
 			response.amount_in,
 			response.spot_price,
@@ -123,17 +123,17 @@ module skip::initiadex {
 	fun get_spot_price(
 		pools: vector<Object<Metadata>>,
 		coins: vector<Object<Metadata>>,
-	): Decimal128 {
+	): Decimal256 {
 		let swap_length = vector::length<Object<Metadata>>(&pools);
 		let i = 0;
-		let spot_price = decimal128::one();
+		let spot_price = decimal256::one();
 		while(i < swap_length) {
 			let pool_metadata = vector::borrow<Object<Metadata>>(&pools, i);
         	let pair = object::convert<Metadata, Config>(*pool_metadata);
 			let coin_out_metadata = vector::borrow<Object<Metadata>>(&coins, i+1);
 
 			let price = dex::get_spot_price(pair, *coin_out_metadata);
-			spot_price = decimal128::mul(&spot_price, &price);
+			spot_price = decimal256::mul(&spot_price, &price);
 			i = i + 1;
 		};
 		
@@ -222,9 +222,9 @@ module skip::initiadex {
 			chain, 
 			std::string::utf8(b"name"),
             std::string::utf8(b"SYMBOL"),
-			decimal128::from_ratio(2, 1000),
-            decimal128::from_ratio(1, 10),
-            decimal128::from_ratio(1, 10),
+			decimal256::from_ratio(2, 1000),
+            decimal256::from_ratio(1, 10),
+            decimal256::from_ratio(1, 10),
 			init_metadata,
 			usdc_metadata,
             1000000,
@@ -235,9 +235,9 @@ module skip::initiadex {
 			chain, 
 			std::string::utf8(b"nam2"),
             std::string::utf8(b"SYMBOL2"),
-			decimal128::from_ratio(1, 100),
-            decimal128::from_ratio(1, 10),
-            decimal128::from_ratio(1, 10),
+			decimal256::from_ratio(1, 100),
+            decimal256::from_ratio(1, 10),
+            decimal256::from_ratio(1, 10),
 			usdc_metadata,
 			usdt_metadata,
             10000000,

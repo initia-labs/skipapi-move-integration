@@ -275,7 +275,7 @@ module skip::entrypoint {
 	fun unpack_action_transfer_args(action_args: vector<vector<u8>>): address {
 		assert!(vector::length(&action_args) == 1, error::invalid_argument(0));
 		let arg = vector::pop_back(&mut action_args);
-		let to_address: address = from_bcs::to_address(base64::decode_bytes(arg));
+		let to_address: address = from_bcs::to_address(base64::decode(arg));
 		
 		to_address
 	}
@@ -283,15 +283,15 @@ module skip::entrypoint {
 	fun unpack_action_ibctransfer_args(action_args: vector<vector<u8>>): (String, String, u64, u64, String) {
 		assert!(vector::length(&action_args) == 5, error::invalid_argument(0));
 		let arg = vector::pop_back(&mut action_args);
-		let memo: String = from_bcs::to_string(base64::decode_bytes(arg));
+		let memo: String = from_bcs::to_string(base64::decode(arg));
 		let arg = vector::pop_back(&mut action_args);
-		let revision_height: u64 = from_bcs::to_u64(base64::decode_bytes(arg));
+		let revision_height: u64 = from_bcs::to_u64(base64::decode(arg));
 		let arg = vector::pop_back(&mut action_args);
-		let revision_num: u64 = from_bcs::to_u64(base64::decode_bytes(arg));
+		let revision_num: u64 = from_bcs::to_u64(base64::decode(arg));
 		let arg = vector::pop_back(&mut action_args);
-		let receiver: String = from_bcs::to_string(base64::decode_bytes(arg));
+		let receiver: String = from_bcs::to_string(base64::decode(arg));
 		let arg = vector::pop_back(&mut action_args);
-		let source_channel: String = from_bcs::to_string(base64::decode_bytes(arg));
+		let source_channel: String = from_bcs::to_string(base64::decode(arg));
 		(
 			source_channel,
 			receiver, 
@@ -304,15 +304,15 @@ module skip::entrypoint {
 	fun unpack_action_contract_args(action_args: vector<vector<u8>>): (address, String, String, vector<String>, vector<vector<u8>>) {
 		assert!(vector::length(&action_args) == 5, error::invalid_argument(0));
 		let arg = vector::pop_back(&mut action_args);
-		let args: vector<vector<u8>> = from_bcs::to_vector_bytes(base64::decode_bytes(arg));
+		let args: vector<vector<u8>> = from_bcs::to_vector_bytes(base64::decode(arg));
 		let arg = vector::pop_back(&mut action_args);
-		let type_args: vector<String> = from_bcs::to_vector_string(base64::decode_bytes(arg));
+		let type_args: vector<String> = from_bcs::to_vector_string(base64::decode(arg));
 		let arg = vector::pop_back(&mut action_args);
-		let function_name: String = from_bcs::to_string(base64::decode_bytes(arg));
+		let function_name: String = from_bcs::to_string(base64::decode(arg));
 		let arg = vector::pop_back(&mut action_args);
-		let module_name: String = from_bcs::to_string(base64::decode_bytes(arg));
+		let module_name: String = from_bcs::to_string(base64::decode(arg));
 		let arg = vector::pop_back(&mut action_args);
-		let module_address: address = from_bcs::to_address(base64::decode_bytes(arg));
+		let module_address: address = from_bcs::to_address(base64::decode(arg));
 
 		(
 			module_address,
@@ -326,29 +326,29 @@ module skip::entrypoint {
 	#[view]
 	fun pack_action_transfer_args(to_address: address): vector<vector<u8>>{
 		let action_args = vector<vector<u8>>[];
-		vector::push_back(&mut action_args, base64::encode_bytes(bcs::to_bytes(&to_address)));
+		vector::push_back(&mut action_args, base64::encode(bcs::to_bytes(&to_address)));
 		action_args
 	}
 
 	#[view]
 	fun pack_action_ibctransfer_args(source_channel: String, receiver: String, revision_num: u64, revision_height: u64, memo: String): vector<vector<u8>> {
 		let action_args = vector<vector<u8>>[];
-		vector::push_back(&mut action_args, base64::encode_bytes(bcs::to_bytes(&source_channel)));
-		vector::push_back(&mut action_args, base64::encode_bytes(bcs::to_bytes(&receiver)));
-		vector::push_back(&mut action_args, base64::encode_bytes(bcs::to_bytes(&revision_num)));
-		vector::push_back(&mut action_args, base64::encode_bytes(bcs::to_bytes(&revision_height)));
-		vector::push_back(&mut action_args, base64::encode_bytes(bcs::to_bytes(&memo)));
+		vector::push_back(&mut action_args, base64::encode(bcs::to_bytes(&source_channel)));
+		vector::push_back(&mut action_args, base64::encode(bcs::to_bytes(&receiver)));
+		vector::push_back(&mut action_args, base64::encode(bcs::to_bytes(&revision_num)));
+		vector::push_back(&mut action_args, base64::encode(bcs::to_bytes(&revision_height)));
+		vector::push_back(&mut action_args, base64::encode(bcs::to_bytes(&memo)));
 		action_args
 	}
 
 	#[view]
 	fun pack_action_contract_args(module_address: address, module_name: String, function_name: String, type_args: vector<String>, args: vector<vector<u8>>): vector<vector<u8>> {
 		let action_args = vector<vector<u8>>[];
-		vector::push_back(&mut action_args, base64::encode_bytes(bcs::to_bytes(&module_address)));
-		vector::push_back(&mut action_args, base64::encode_bytes(bcs::to_bytes(&module_name)));
-		vector::push_back(&mut action_args, base64::encode_bytes(bcs::to_bytes(&function_name)));
-		vector::push_back(&mut action_args, base64::encode_bytes(bcs::to_bytes(&type_args)));
-		vector::push_back(&mut action_args, base64::encode_bytes(bcs::to_bytes(&args)));
+		vector::push_back(&mut action_args, base64::encode(bcs::to_bytes(&module_address)));
+		vector::push_back(&mut action_args, base64::encode(bcs::to_bytes(&module_name)));
+		vector::push_back(&mut action_args, base64::encode(bcs::to_bytes(&function_name)));
+		vector::push_back(&mut action_args, base64::encode(bcs::to_bytes(&type_args)));
+		vector::push_back(&mut action_args, base64::encode(bcs::to_bytes(&args)));
 		action_args
 	}
 
