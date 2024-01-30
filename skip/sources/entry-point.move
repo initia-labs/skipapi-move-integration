@@ -14,6 +14,8 @@ module skip::entrypoint {
     use initia_std::from_bcs;
     use initia_std::base64;
 
+    use skip::ackcallback;
+
     struct AdaptorInfo has copy, drop, store{
         module_address: address,
         module_name: String,
@@ -56,25 +58,25 @@ module skip::entrypoint {
     }
 
     fun init_module(chain: &signer) {
-        let swap_venues = simple_map::create<String,AdaptorInfo>();
-        simple_map::add(&mut swap_venues, string::utf8(b"initiadex"), AdaptorInfo {
-            module_address: @skip,
-            module_name: string::utf8(b"initiadex"),
-        });
+		let swap_venues = simple_map::create<String,AdaptorInfo>();
+		simple_map::add(&mut swap_venues, string::utf8(b"initiadex"), AdaptorInfo {
+			module_address: @skip,
+			module_name: string::utf8(b"initiadex"),
+		});
 
-        move_to(chain, ModuleStore {
-            swap_venues: swap_venues,
-            swap_venue_count: 1,
-        });
+		move_to(chain, ModuleStore {
+			swap_venues: swap_venues,
+			swap_venue_count: 1,
+		});
 
-        event::emit<AddSwapVenueEvent>(
-            AddSwapVenueEvent {
-                name: string::utf8(b"initiadex"),
-                module_address: @skip,
-                module_name: string::utf8(b"initiadex"),
-            }
-        )
-    }
+		event::emit<AddSwapVenueEvent>(
+			AddSwapVenueEvent {
+				name: string::utf8(b"initiadex"),
+				module_address: @skip,
+				module_name: string::utf8(b"initiadex"),
+			}
+		)
+	}
 
     const POST_ACTION_TRANSFER: u8 = 0;
     const POST_ACTION_IBCTRANSFER: u8 = 1;
@@ -227,6 +229,7 @@ module skip::entrypoint {
             let to_address = unpack_action_transfer_args(action_args);
             coin::transfer(account, to_address, coin, amount);
         } else if(post_swap_action == POST_ACTION_IBCTRANSFER) {
+            ackcallback::store_callback_id(account, 1, coin);
             let (
                 source_channel,
                 receiver, 
@@ -393,8 +396,8 @@ module skip::entrypoint {
         assert!(length == 1, 1);
 
         let swap_venue_info = simple_map::borrow(&module_store.swap_venues, &string::utf8(b"initiadex"));
-        assert!(swap_venue_info.module_address == @skip, 1);
-        assert!(swap_venue_info.module_name == string::utf8(b"initiadex"), 1);
+        assert!(swap_venue_info.module_address == @skip, 4);
+        assert!(swap_venue_info.module_name == string::utf8(b"initiadex"), 5);
     }
 
     #[test(chain=@0x1)]
@@ -410,9 +413,9 @@ module skip::entrypoint {
 
         let event = vector::borrow(&events, 0);
         
-        assert!(event.name == string::utf8(b"initiadex"), 1);
-        assert!(event.module_address == @skip, 1);
-        assert!(event.module_name == string::utf8(b"initiadex"), 1);
+        assert!(event.name == string::utf8(b"initiadex"), 2);
+        assert!(event.module_address == @skip, 3);
+        assert!(event.module_name == string::utf8(b"initiadex"), 4);
     }
 
     #[test]
@@ -431,15 +434,14 @@ module skip::entrypoint {
         let receiver = string::utf8(b"init...");
         let revision_num=0;
         let revision_height = 4824;
-        let memo=string::utf8(b"");
-        
+        let memo=string::utf8(b"memo");
         let packed_args = pack_action_ibctransfer_args(source_channel, receiver, revision_num, revision_height, memo);
         let (a, b, c, d, e) = unpack_action_ibctransfer_args(packed_args);
         assert!(source_channel == a, 1);
-        assert!(receiver == b, 1);
-        assert!(revision_num == c, 1);
-        assert!(revision_height == d, 1);
-        assert!(memo == e, 1);
+        assert!(receiver == b, 2);
+        assert!(revision_num == c, 3);
+        assert!(revision_height == d, 4);
+        assert!(memo == e, 5);
     }
 
     #[test]
@@ -453,9 +455,9 @@ module skip::entrypoint {
         let packed_args = pack_action_contract_args(module_addr, module_name, function_name, type_args, args);
         let (a, b, c, d, e) = unpack_action_contract_args(packed_args);
         assert!(module_addr == a, 1);
-        assert!(module_name == b, 1);
-        assert!(function_name == c, 1);
-        assert!(type_args == d, 1);
-        assert!(args == e, 1);
+        assert!(module_name == b, 2);
+        assert!(function_name == c, 3);
+        assert!(type_args == d, 4);
+        assert!(args == e, 5);
     }
 }

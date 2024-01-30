@@ -9,7 +9,6 @@ module skip::initiadex {
     use initia_std::coin;
     use initia_std::fungible_asset::{Self, Metadata};
     use initia_std::object::{Object};
-    use initia_std::event;
 
     const EINVALID_ARGUMENTS: u64 = 0;
     const ERETURN_AMOUNT: u64 = 1;
@@ -182,9 +181,11 @@ module skip::initiadex {
     }
 
     #[test_only]
-    use initia_std::string;
+    use initia_std::string::{Self, String};
     #[test_only]
     use initia_std::object;
+    #[test_only]
+    use initia_std::primary_fungible_store;
 
     #[test_only]
     fun initialized_coin(
@@ -274,9 +275,9 @@ module skip::initiadex {
         let usdc_balance_after_swap = coin::balance(chain_addr, *vector::borrow(&coins, 1));
         let usdt_balance_after_swap = coin::balance(chain_addr, *vector::borrow(&coins, 2));
 
-        assert!(init_balance_after_swap == 9900, ERETURN_AMOUNT);
-        assert!(usdc_balance_after_swap == 0, ERETURN_AMOUNT);
-        assert!(usdt_balance_after_swap == 989, ERETURN_AMOUNT);
+        assert!(init_balance_after_swap == 9900, 0);
+        assert!(usdc_balance_after_swap == 0, 1);
+        assert!(usdt_balance_after_swap == 989, 2);
     }
 
     #[test(chain = @0x1)]
@@ -292,9 +293,9 @@ module skip::initiadex {
         let usdc_balance_after_swap = coin::balance(chain_addr, *vector::borrow(&coins, 1));
         let usdt_balance_after_swap = coin::balance(chain_addr, *vector::borrow(&coins, 2));
 
-        assert!(init_balance_after_swap == 9900, ERETURN_AMOUNT);
-        assert!(usdc_balance_after_swap == 0, ERETURN_AMOUNT);
-        assert!(usdt_balance_after_swap == 989, ERETURN_AMOUNT);
+        assert!(init_balance_after_swap == 9900, 0);
+        assert!(usdc_balance_after_swap == 0, 1);
+        assert!(usdt_balance_after_swap == 989, 2);
     }
 
     #[test(chain = @0x1)]
@@ -303,7 +304,7 @@ module skip::initiadex {
     ) {
         let (pools, coins) = initialized_module_for_test(&chain);
         let expected_amount = simulate_swap_exact_asset_in(100, pools, coins);
-        assert!(expected_amount == 989, ERETURN_AMOUNT);
+        assert!(expected_amount == 989, 0);
     }
 
     #[test(chain = @0x1)]
@@ -312,6 +313,6 @@ module skip::initiadex {
     ) {
         let (pools, coins) = initialized_module_for_test(&chain);
         let expected_amount = simulate_swap_exact_asset_out(989, pools, coins);
-        assert!(expected_amount == 100, ERETURN_AMOUNT);
+        assert!(expected_amount == 100, 0);
     }
 }

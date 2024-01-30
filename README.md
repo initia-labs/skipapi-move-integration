@@ -10,7 +10,7 @@ The contracts are available to
 
 Entry point contract
 -------------
-A main feature of this contract is `swap_and_action`. As a move contract cannot call another modules dynamically, we make another messages like SubMsg method of CosmWasm (you can get idea how it works in the following codes, https://github.com/initia-labs/initia/blob/main/x/move/keeper/handler.go#L271).
+Dynamic dispatch is not allowed in move contract, so we utilize cosmos message interface to execute other move contract with module address and name like SubMsg of CosmWasm (you can get idea how it works in the following codes, https://github.com/initia-labs/initia/blob/main/x/move/keeper/handler.go#L271).
 
 This contract acts like as follows.
 
@@ -128,6 +128,11 @@ fun pack_swap_and_action_args(
 	args
 }
 ```
+
+Ack callback
+-------------
+Before you send a IBC transfer message, you should store a specific callback id into your ack-callback contract. Initia ack hook calls functions `ibc_ack` or `ibc_timeout` with the callback id. You can refer `@skip::ackcallback` module which simply sends token to `@skip` address when receiving an ack. 
+
 
 Example instructions
 -------------
