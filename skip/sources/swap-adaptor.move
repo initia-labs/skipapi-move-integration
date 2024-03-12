@@ -5,6 +5,7 @@ module skip::initiadex {
     use std::error;
 
     use initia_std::dex::{Self, Config};
+    use initia_std::decimal128::{Self, Decimal128};
     use initia_std::decimal256::{Self, Decimal256};
     use initia_std::coin;
     use initia_std::fungible_asset::{Self, Metadata};
@@ -132,8 +133,10 @@ module skip::initiadex {
             let pair = vector::borrow<Object<Config>>(&pools, i);
             let coin_out_metadata = vector::borrow<Object<Metadata>>(&coins, i+1);
 
-            let price = dex::get_spot_price(*pair, *coin_out_metadata);
-            spot_price = decimal256::mul(&spot_price, &price);
+            let price128 = dex::get_spot_price(*pair, *coin_out_metadata);
+            let price256 = decimal256::new_u128(decimal128::val(&price128));
+
+            spot_price = decimal256::mul(&spot_price, &price256);
             i = i + 1;
         };
         
