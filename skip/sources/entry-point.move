@@ -13,6 +13,10 @@ module skip::entrypoint {
     use initia_std::coin;
     use initia_std::from_bcs;
     use initia_std::base64;
+    use initia_std::json;
+    use initia_std::simple_json;
+    use initia_std::option;
+    use initia_std::address;
 
     use skip::ackcallback;
 
@@ -95,6 +99,7 @@ module skip::entrypoint {
         min_swap_amount: u64,
         timeout_timestamp: u64,
         post_swap_action: u8,
+        recover_address: address,
         action_args: vector<vector<u8>>,
     ) acquires ModuleStore{
         swap_and_action_(
@@ -109,6 +114,7 @@ module skip::entrypoint {
             min_swap_amount,
             timeout_timestamp,
             post_swap_action,
+            recover_address,
             action_args,
         );
     }
@@ -125,6 +131,7 @@ module skip::entrypoint {
         min_swap_amount: u64,
         timeout_timestamp: u64,
         post_swap_action: u8,
+        recover_address: address,
         action_args: vector<vector<u8>>,
     ) acquires ModuleStore {
         let module_store = borrow_global<ModuleStore>(@skip);
@@ -157,6 +164,7 @@ module skip::entrypoint {
             min_swap_amount,
             timeout_timestamp, 
             post_swap_action,
+            recover_address,
             action_args,
         );
 
@@ -195,6 +203,7 @@ module skip::entrypoint {
         amount: u64,
         timeout_timestamp: u64,
         post_swap_action: u8,
+        recover_address: address,
         action_args: vector<vector<u8>>,
     ): vector<vector<u8>> {
         let msg_args = vector<vector<u8>>[];
@@ -202,12 +211,14 @@ module skip::entrypoint {
         let amount_arg = bcs::to_bytes(&amount);
         let timeout_timestamp_arg = bcs::to_bytes(&timeout_timestamp);
         let post_swap_action_arg = bcs::to_bytes(&post_swap_action);
+        let recover_address_arg = bcs::to_bytes(&recover_address);
         let action_arg = bcs::to_bytes(&action_args);
 
         vector::push_back(&mut msg_args, coin_arg);
         vector::push_back(&mut msg_args, amount_arg);
         vector::push_back(&mut msg_args, timeout_timestamp_arg);
         vector::push_back(&mut msg_args, post_swap_action_arg);
+        vector::push_back(&mut msg_args, recover_address_arg);
         vector::push_back(&mut msg_args, action_arg);
 
         msg_args
@@ -219,6 +230,7 @@ module skip::entrypoint {
         amount: u64,
         timeout_timestamp: u64,
         post_swap_action: u8,
+        recover_address: address,
         action_args: vector<vector<u8>>,
     ) {
         let account_addr = signer::address_of(account);
@@ -229,7 +241,7 @@ module skip::entrypoint {
             let to_address = unpack_action_transfer_args(action_args);
             coin::transfer(account, to_address, coin, amount);
         } else if(post_swap_action == POST_ACTION_IBCTRANSFER) {
-            ackcallback::store_callback_id(account, 1, coin);
+            let callback_id = ackcallback::store_recover_address(recover_address, amount, coin);
             let (
                 source_channel,
                 receiver, 
@@ -237,6 +249,29 @@ module skip::entrypoint {
                 revision_height,
                 memo,
             ) = unpack_action_ibctransfer_args(action_args);
+
+            let obj = simple_json::from_json_object(json::parse(memo));
+            simple_json::increase_depth(&mut obj);
+            simple_json::increase_depth(&mut obj);
+            /*
+                "async_callback": {
+                    "id": ,
+                    "module_address": "",
+                    "module_name": ""
+                }
+            */
+            simple_json::set_object(&mut obj, option::some(string::utf8(b"async_callback")));
+            simple_json::increase_depth(&mut obj);
+            simple_json::set_int_raw(&mut obj, option::some(string::utf8(b"id")), true, (callback_id as u256));
+            simple_json::set_string(&mut obj, 
+                                    option::some(string::utf8(b"module_address")), 
+                                    address::to_string(@skip));
+            
+            simple_json::set_string(&mut obj, 
+                                    option::some(string::utf8(b"module_name")), 
+                                    string::utf8(b"ackcallback"));
+            let memo = json::stringify(simple_json::to_json_object(&obj));
+
             cosmos::transfer(
                 account,
                 receiver,
@@ -434,7 +469,7 @@ module skip::entrypoint {
         let receiver = string::utf8(b"init...");
         let revision_num=0;
         let revision_height = 4824;
-        let memo=string::utf8(b"memo");
+        let memo=string::utf8(b"{\"move\":{\"message\":{}}}");
         let packed_args = pack_action_ibctransfer_args(source_channel, receiver, revision_num, revision_height, memo);
         let (a, b, c, d, e) = unpack_action_ibctransfer_args(packed_args);
         assert!(source_channel == a, 1);
@@ -442,6 +477,34 @@ module skip::entrypoint {
         assert!(revision_num == c, 3);
         assert!(revision_height == d, 4);
         assert!(memo == e, 5);
+    }
+
+    #[test]
+    public fun insert_callback_to_memo() {
+        let memo=string::utf8(b"{\"move\":{\"message\":{}}}");
+        let obj = simple_json::from_json_object(json::parse(memo));
+        simple_json::increase_depth(&mut obj);
+        simple_json::increase_depth(&mut obj);
+        /*
+            "async_callback": {
+                "id": ,
+                "module_address": "",
+                "module_name": ""
+            }
+        */
+        simple_json::set_object(&mut obj, option::some(string::utf8(b"async_callback")));
+        simple_json::increase_depth(&mut obj);
+        simple_json::set_int_raw(&mut obj, option::some(string::utf8(b"id")), true, 1);
+        simple_json::set_string(&mut obj, 
+                                option::some(string::utf8(b"module_address")), 
+                                string::utf8(b"0x1"));
+        
+        simple_json::set_string(&mut obj, 
+                                option::some(string::utf8(b"module_name")), 
+                                string::utf8(b"ackcallback"));
+        let memo = json::stringify(simple_json::to_json_object(&obj));
+        
+        assert!(memo == string::utf8(b"{\"move\":{\"async_callback\":{\"id\":1,\"module_address\":\"0x1\",\"module_name\":\"ackcallback\"},\"message\":{}}}"), 1);
     }
 
     #[test]
