@@ -1,4 +1,4 @@
-module skip::entrypoint {	
+module skip::entrypoint {    
     use std::signer;
     use std::vector;
     use std::bcs;
@@ -62,25 +62,25 @@ module skip::entrypoint {
     }
 
     fun init_module(chain: &signer) {
-		let swap_venues = simple_map::create<String,AdaptorInfo>();
-		simple_map::add(&mut swap_venues, string::utf8(b"initiadex"), AdaptorInfo {
-			module_address: @skip,
-			module_name: string::utf8(b"initiadex"),
-		});
+        let swap_venues = simple_map::create<String,AdaptorInfo>();
+        simple_map::add(&mut swap_venues, string::utf8(b"initiadex"), AdaptorInfo {
+            module_address: @skip,
+            module_name: string::utf8(b"initiadex"),
+        });
 
-		move_to(chain, ModuleStore {
-			swap_venues: swap_venues,
-			swap_venue_count: 1,
-		});
+        move_to(chain, ModuleStore {
+            swap_venues: swap_venues,
+            swap_venue_count: 1,
+        });
 
-		event::emit<AddSwapVenueEvent>(
-			AddSwapVenueEvent {
-				name: string::utf8(b"initiadex"),
-				module_address: @skip,
-				module_name: string::utf8(b"initiadex"),
-			}
-		)
-	}
+        event::emit<AddSwapVenueEvent>(
+            AddSwapVenueEvent {
+                name: string::utf8(b"initiadex"),
+                module_address: @skip,
+                module_name: string::utf8(b"initiadex"),
+            }
+        )
+    }
 
     const POST_ACTION_TRANSFER: u8 = 0;
     const POST_ACTION_IBCTRANSFER: u8 = 1;
