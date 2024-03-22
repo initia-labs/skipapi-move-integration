@@ -1,4 +1,4 @@
-module skip::entrypoint {	
+module skip::entrypoint {    
     use std::signer;
     use std::vector;
     use std::bcs;
@@ -13,6 +13,10 @@ module skip::entrypoint {
     use initia_std::coin;
     use initia_std::from_bcs;
     use initia_std::base64;
+    use initia_std::json;
+    use initia_std::simple_json;
+    use initia_std::option;
+    use initia_std::address;
 
     use skip::ackcallback;
 
@@ -58,43 +62,80 @@ module skip::entrypoint {
     }
 
     fun init_module(chain: &signer) {
-		let swap_venues = simple_map::create<String,AdaptorInfo>();
-		simple_map::add(&mut swap_venues, string::utf8(b"initiadex"), AdaptorInfo {
-			module_address: @skip,
-			module_name: string::utf8(b"initiadex"),
-		});
+        let swap_venues = simple_map::create<String,AdaptorInfo>();
+        simple_map::add(&mut swap_venues, string::utf8(b"initiadex"), AdaptorInfo {
+            module_address: @skip,
+            module_name: string::utf8(b"initiadex"),
+        });
 
-		move_to(chain, ModuleStore {
-			swap_venues: swap_venues,
-			swap_venue_count: 1,
-		});
+        move_to(chain, ModuleStore {
+            swap_venues: swap_venues,
+            swap_venue_count: 1,
+        });
 
-		event::emit<AddSwapVenueEvent>(
-			AddSwapVenueEvent {
-				name: string::utf8(b"initiadex"),
-				module_address: @skip,
-				module_name: string::utf8(b"initiadex"),
-			}
-		)
-	}
+        event::emit<AddSwapVenueEvent>(
+            AddSwapVenueEvent {
+                name: string::utf8(b"initiadex"),
+                module_address: @skip,
+                module_name: string::utf8(b"initiadex"),
+            }
+        )
+    }
 
     const POST_ACTION_TRANSFER: u8 = 0;
     const POST_ACTION_IBCTRANSFER: u8 = 1;
     const POST_ACTION_CONTRACT: u8 = 2;
 
-// Note: entry functions can take primitive types, String, and vector arguments but cannot take Structs (e.g. Option). They also must not have any return values.
+    //
+    // Entry Functions
+    //
+
+    /// SwapAndAction is an entry function for swapping and performing post actions.
+    /// 
+    /// ActionArgs:
+    /// 1. Swap and Transfer
+    /// It only contains the recipient address.
+    /// 
+    ///     action_args: vec![
+    ///         recipient(cosmos addr): bcs(String),
+    ///     ]
+    /// 
+    /// 2. Swap and IBC Transfer
+    /// 
+    ///     action args: vec![
+    ///         source_channel: bcs(String), 
+    ///         recipient(cosmos addr): bcs(String), 
+    ///         memo: bcs(String),
+    ///     ]
+    /// 
+    /// 3. Swap and Contract Exec
+    /// 
+    ///     action args: vec![
+    ///         module_address: bcs(address), 
+    ///         module_name: bcs(String), 
+    ///         function_name: bcs(String), 
+    ///         type_args: bcs(vec![String]), 
+    ///         args: bcs(vec![vec![u8]]),
+    ///     ]
+    /// 
+    /// Note: Entry functions can accept primitive types, Strings, Option, and vectors as arguments, 
+    /// but they cannot accept Structs (e.g. Resources like FungibleAsset).
+    /// 
+    /// Note: Entry functions must not have any return values.
+    /// 
     public entry fun swap_and_action(
         account: &signer,
         swap_venue_name: String,
         swap_function_name: String,
-        user_swap_coin: Object<Metadata>,
+        user_swap_coin: String,
         user_swap_amount: u64,
-        pools: vector<Object<Metadata>>,
-        coins: vector<Object<Metadata>>,
-        min_swap_coin: Object<Metadata>,
+        pools: vector<String>,
+        coins: vector<String>,
+        min_swap_coin: String,
         min_swap_amount: u64,
         timeout_timestamp: u64,
         post_swap_action: u8,
+        recover_address: String,
         action_args: vector<vector<u8>>,
     ) acquires ModuleStore{
         swap_and_action_(
@@ -109,29 +150,66 @@ module skip::entrypoint {
             min_swap_amount,
             timeout_timestamp,
             post_swap_action,
+            recover_address,
             action_args,
         );
     }
+
+    /// This is not entended to be executed by a user,
+    /// but it will be executed by swap_and_action.
+    public entry fun post_action(
+        account: &signer,
+        coin: Object<Metadata>,
+        amount: u64,
+        timeout_timestamp: u64,
+        post_swap_action: u8,
+        recover_address: address,
+        action_args: vector<vector<u8>>,
+    ) {
+        post_action_(
+            account,
+            coin,
+            amount,
+            timeout_timestamp,
+            post_swap_action,
+            recover_address,
+            action_args,
+        )
+    }
+
+    //
+    // Implementations
+    //
 
     fun swap_and_action_(
         account: &signer,
         swap_venue_name: String,
         swap_function_name: String,
-        user_swap_coin: Object<Metadata>,
+        user_swap_coin: String,
         user_swap_amount: u64,
-        pools: vector<Object<Metadata>>,
-        coins: vector<Object<Metadata>>,
-        min_swap_coin: Object<Metadata>,
+        pools: vector<String>,
+        coins: vector<String>,
+        min_swap_coin: String,
         min_swap_amount: u64,
         timeout_timestamp: u64,
         post_swap_action: u8,
+        recover_address: String,
         action_args: vector<vector<u8>>,
     ) acquires ModuleStore {
         let module_store = borrow_global<ModuleStore>(@skip);
         let swap_venue_info = simple_map::borrow(&module_store.swap_venues, &swap_venue_name);
 
+        let user_swap_coin = coin::denom_to_metadata(user_swap_coin);
+        let pools = vector::map(pools, |pool| coin::denom_to_metadata(pool));
+        let coins = vector::map(coins, |coin| coin::denom_to_metadata(coin));
+
+        let min_swap_coin = coin::denom_to_metadata(min_swap_coin);
+        let recover_address = address::from_sdk(recover_address);
+
         assert!( swap_function_name == string::utf8(b"swap_exact_asset_in")
-                    || swap_function_name == string::utf8(b"swap_exact_asset_out"), error::invalid_argument(ESWAP_INVALID_FUNCTION) );
+                    || swap_function_name == string::utf8(b"swap_exact_asset_out"), 
+                    error::invalid_argument(ESWAP_INVALID_FUNCTION),
+        );
         assert!(user_swap_coin == *vector::borrow(&coins, 0), EINVALID_ASSET);
         assert!(min_swap_coin == *vector::borrow(&coins, vector::length(&coins) - 1), EINVALID_ASSET);
 
@@ -157,6 +235,7 @@ module skip::entrypoint {
             min_swap_amount,
             timeout_timestamp, 
             post_swap_action,
+            recover_address,
             action_args,
         );
 
@@ -195,6 +274,7 @@ module skip::entrypoint {
         amount: u64,
         timeout_timestamp: u64,
         post_swap_action: u8,
+        recover_address: address,
         action_args: vector<vector<u8>>,
     ): vector<vector<u8>> {
         let msg_args = vector<vector<u8>>[];
@@ -202,23 +282,26 @@ module skip::entrypoint {
         let amount_arg = bcs::to_bytes(&amount);
         let timeout_timestamp_arg = bcs::to_bytes(&timeout_timestamp);
         let post_swap_action_arg = bcs::to_bytes(&post_swap_action);
+        let recover_address_arg = bcs::to_bytes(&recover_address);
         let action_arg = bcs::to_bytes(&action_args);
 
         vector::push_back(&mut msg_args, coin_arg);
         vector::push_back(&mut msg_args, amount_arg);
         vector::push_back(&mut msg_args, timeout_timestamp_arg);
         vector::push_back(&mut msg_args, post_swap_action_arg);
+        vector::push_back(&mut msg_args, recover_address_arg);
         vector::push_back(&mut msg_args, action_arg);
 
         msg_args
     }
 
-    public entry fun post_action(
+    fun post_action_(
         account: &signer,
         coin: Object<Metadata>,
         amount: u64,
         timeout_timestamp: u64,
         post_swap_action: u8,
+        recover_address: address,
         action_args: vector<vector<u8>>,
     ) {
         let account_addr = signer::address_of(account);
@@ -229,14 +312,42 @@ module skip::entrypoint {
             let to_address = unpack_action_transfer_args(action_args);
             coin::transfer(account, to_address, coin, amount);
         } else if(post_swap_action == POST_ACTION_IBCTRANSFER) {
-            ackcallback::store_callback_id(account, 1, coin);
+            let callback_id = ackcallback::store_recover_address(recover_address, amount, coin);
             let (
                 source_channel,
                 receiver, 
-                revision_num,
-                revision_height,
                 memo,
             ) = unpack_action_ibctransfer_args(action_args);
+
+            let obj = simple_json::from_json_object(json::parse(memo));
+            simple_json::increase_depth(&mut obj);
+            simple_json::increase_depth(&mut obj);
+            /*
+                "async_callback": {
+                    "id": ,
+                    "module_address": "",
+                    "module_name": ""
+                }
+            */
+            simple_json::set_object(&mut obj, option::some(string::utf8(b"async_callback")));
+            simple_json::increase_depth(&mut obj);
+            simple_json::set_int_raw(
+                &mut obj, 
+                option::some(string::utf8(b"id")), 
+                true, (callback_id as u256),
+            );
+            simple_json::set_string(
+                &mut obj, 
+                option::some(string::utf8(b"module_address")), 
+                address::to_string(@skip),
+            );
+            simple_json::set_string(
+                &mut obj, 
+                option::some(string::utf8(b"module_name")), 
+                string::utf8(b"ackcallback"),
+            );
+            let memo = json::stringify(simple_json::to_json_object(&obj));
+
             cosmos::transfer(
                 account,
                 receiver,
@@ -244,8 +355,8 @@ module skip::entrypoint {
                 amount,
                 string::utf8(b"transfer"),
                 source_channel,
-                revision_num,
-                revision_height,
+                0,
+                0,
                 timeout_timestamp,
                 memo,
             );
@@ -271,28 +382,22 @@ module skip::entrypoint {
     fun unpack_action_transfer_args(action_args: vector<vector<u8>>): address {
         assert!(vector::length(&action_args) == 1, error::invalid_argument(0));
         let arg = vector::pop_back(&mut action_args);
-        let to_address: address = from_bcs::to_address(base64::decode(arg));
+        let to_address: address = address::from_sdk(from_bcs::to_string(arg));
         
         to_address
     }
 
-    fun unpack_action_ibctransfer_args(action_args: vector<vector<u8>>): (String, String, u64, u64, String) {
-        assert!(vector::length(&action_args) == 5, error::invalid_argument(0));
+    fun unpack_action_ibctransfer_args(action_args: vector<vector<u8>>): (String, String, String) {
+        assert!(vector::length(&action_args) == 3, error::invalid_argument(0));
         let arg = vector::pop_back(&mut action_args);
-        let memo: String = from_bcs::to_string(base64::decode(arg));
+        let memo: String = from_bcs::to_string(arg);
         let arg = vector::pop_back(&mut action_args);
-        let revision_height: u64 = from_bcs::to_u64(base64::decode(arg));
+        let receiver: String = from_bcs::to_string(arg);
         let arg = vector::pop_back(&mut action_args);
-        let revision_num: u64 = from_bcs::to_u64(base64::decode(arg));
-        let arg = vector::pop_back(&mut action_args);
-        let receiver: String = from_bcs::to_string(base64::decode(arg));
-        let arg = vector::pop_back(&mut action_args);
-        let source_channel: String = from_bcs::to_string(base64::decode(arg));
+        let source_channel: String = from_bcs::to_string(arg);
         (
             source_channel,
             receiver, 
-            revision_num,
-            revision_height,
             memo,
         )
     }
@@ -300,15 +405,15 @@ module skip::entrypoint {
     fun unpack_action_contract_args(action_args: vector<vector<u8>>): (address, String, String, vector<String>, vector<vector<u8>>) {
         assert!(vector::length(&action_args) == 5, error::invalid_argument(0));
         let arg = vector::pop_back(&mut action_args);
-        let args: vector<vector<u8>> = from_bcs::to_vector_bytes(base64::decode(arg));
+        let args: vector<vector<u8>> = from_bcs::to_vector_bytes(arg);
         let arg = vector::pop_back(&mut action_args);
-        let type_args: vector<String> = from_bcs::to_vector_string(base64::decode(arg));
+        let type_args: vector<String> = from_bcs::to_vector_string(arg);
         let arg = vector::pop_back(&mut action_args);
-        let function_name: String = from_bcs::to_string(base64::decode(arg));
+        let function_name: String = from_bcs::to_string(arg);
         let arg = vector::pop_back(&mut action_args);
-        let module_name: String = from_bcs::to_string(base64::decode(arg));
+        let module_name: String = from_bcs::to_string(arg);
         let arg = vector::pop_back(&mut action_args);
-        let module_address: address = from_bcs::to_address(base64::decode(arg));
+        let module_address: address = from_bcs::to_address(arg);
 
         (
             module_address,
@@ -319,32 +424,36 @@ module skip::entrypoint {
         )
     }
 
+    //
+    // View Functions
+    //
+
+    // @dev: to_address is cosmos address
     #[view]
-    fun pack_action_transfer_args(to_address: address): vector<vector<u8>>{
+    fun pack_action_transfer_args(to_address: String): vector<vector<u8>>{
         let action_args = vector<vector<u8>>[];
-        vector::push_back(&mut action_args, base64::encode(bcs::to_bytes(&to_address)));
+        vector::push_back(&mut action_args, bcs::to_bytes(&to_address));
         action_args
     }
 
+    // @dev: receiver is cosmos address
     #[view]
-    fun pack_action_ibctransfer_args(source_channel: String, receiver: String, revision_num: u64, revision_height: u64, memo: String): vector<vector<u8>> {
+    fun pack_action_ibctransfer_args(source_channel: String, receiver: String, memo: String): vector<vector<u8>> {
         let action_args = vector<vector<u8>>[];
-        vector::push_back(&mut action_args, base64::encode(bcs::to_bytes(&source_channel)));
-        vector::push_back(&mut action_args, base64::encode(bcs::to_bytes(&receiver)));
-        vector::push_back(&mut action_args, base64::encode(bcs::to_bytes(&revision_num)));
-        vector::push_back(&mut action_args, base64::encode(bcs::to_bytes(&revision_height)));
-        vector::push_back(&mut action_args, base64::encode(bcs::to_bytes(&memo)));
+        vector::push_back(&mut action_args, bcs::to_bytes(&source_channel));
+        vector::push_back(&mut action_args, bcs::to_bytes(&receiver));
+        vector::push_back(&mut action_args, bcs::to_bytes(&memo));
         action_args
     }
 
     #[view]
     fun pack_action_contract_args(module_address: address, module_name: String, function_name: String, type_args: vector<String>, args: vector<vector<u8>>): vector<vector<u8>> {
         let action_args = vector<vector<u8>>[];
-        vector::push_back(&mut action_args, base64::encode(bcs::to_bytes(&module_address)));
-        vector::push_back(&mut action_args, base64::encode(bcs::to_bytes(&module_name)));
-        vector::push_back(&mut action_args, base64::encode(bcs::to_bytes(&function_name)));
-        vector::push_back(&mut action_args, base64::encode(bcs::to_bytes(&type_args)));
-        vector::push_back(&mut action_args, base64::encode(bcs::to_bytes(&args)));
+        vector::push_back(&mut action_args, bcs::to_bytes(&module_address));
+        vector::push_back(&mut action_args, bcs::to_bytes(&module_name));
+        vector::push_back(&mut action_args, bcs::to_bytes(&function_name));
+        vector::push_back(&mut action_args, bcs::to_bytes(&type_args));
+        vector::push_back(&mut action_args, bcs::to_bytes(&args));
         action_args
     }
 
@@ -420,9 +529,10 @@ module skip::entrypoint {
 
     #[test]
     public fun pack_unpack_action_transfer_args() {
-        let addr = @0x123;
+        let addr = @0x1DDF1EBB9C2796754EA1DADBDEE912AB793CF647;
+        let cosmos_addr = address::to_sdk(addr);
         
-        let packed_args = pack_action_transfer_args(addr);
+        let packed_args = pack_action_transfer_args(cosmos_addr);
         let unpacked_args = unpack_action_transfer_args(packed_args);
 
         assert!(addr == unpacked_args, 1);
@@ -431,17 +541,41 @@ module skip::entrypoint {
     #[test]
     public fun pack_unpack_action_ibctransfer_args() {
         let source_channel = string::utf8(b"channel-0");
-        let receiver = string::utf8(b"init...");
-        let revision_num=0;
-        let revision_height = 4824;
-        let memo=string::utf8(b"memo");
-        let packed_args = pack_action_ibctransfer_args(source_channel, receiver, revision_num, revision_height, memo);
-        let (a, b, c, d, e) = unpack_action_ibctransfer_args(packed_args);
+        let receiver = string::utf8(b"init1rh03awuuy7t82n4pmtdaa6gj4duneaj8gghkqp");
+        let memo=string::utf8(b"{\"move\":{\"message\":{}}}");
+        let packed_args = pack_action_ibctransfer_args(source_channel, receiver, memo);
+        let (a, b, c) = unpack_action_ibctransfer_args(packed_args);
         assert!(source_channel == a, 1);
         assert!(receiver == b, 2);
-        assert!(revision_num == c, 3);
-        assert!(revision_height == d, 4);
-        assert!(memo == e, 5);
+        assert!(memo == c, 3);
+    }
+
+    #[test]
+    public fun insert_callback_to_memo() {
+        let memo=string::utf8(b"{\"move\":{\"message\":{}}}");
+        let obj = simple_json::from_json_object(json::parse(memo));
+        simple_json::increase_depth(&mut obj);
+        simple_json::increase_depth(&mut obj);
+        /*
+            "async_callback": {
+                "id": ,
+                "module_address": "",
+                "module_name": ""
+            }
+        */
+        simple_json::set_object(&mut obj, option::some(string::utf8(b"async_callback")));
+        simple_json::increase_depth(&mut obj);
+        simple_json::set_int_raw(&mut obj, option::some(string::utf8(b"id")), true, 1);
+        simple_json::set_string(&mut obj, 
+                                option::some(string::utf8(b"module_address")), 
+                                string::utf8(b"0x1"));
+        
+        simple_json::set_string(&mut obj, 
+                                option::some(string::utf8(b"module_name")), 
+                                string::utf8(b"ackcallback"));
+        let memo = json::stringify(simple_json::to_json_object(&obj));
+        
+        assert!(memo == string::utf8(b"{\"move\":{\"async_callback\":{\"id\":1,\"module_address\":\"0x1\",\"module_name\":\"ackcallback\"},\"message\":{}}}"), 1);
     }
 
     #[test]
