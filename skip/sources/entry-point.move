@@ -319,6 +319,10 @@ module skip::entrypoint {
                 memo,
             ) = unpack_action_ibctransfer_args(action_args);
 
+            if (string::length(&memo) == 0) {
+                memo = string::utf8(b"{\"move\":{}}");
+            };
+
             let obj = simple_json::from_json_object(json::parse(memo));
             simple_json::increase_depth(&mut obj);
             simple_json::increase_depth(&mut obj);
@@ -593,5 +597,50 @@ module skip::entrypoint {
         assert!(function_name == c, 3);
         assert!(type_args == d, 4);
         assert!(args == e, 5);
+    }
+
+    #[test_only]
+    use initia_std::coin::{BurnCapability, FreezeCapability, MintCapability};
+
+    #[test_only]
+    use initia_std::primary_fungible_store;
+
+    #[test(chain=@0x1, skip=@0x101)]
+    public fun test_post_action_with_empty_memo(chain: &signer, skip: &signer) {
+        init_module_for_test(skip);
+        primary_fungible_store::init_module_for_test(chain);
+        ackcallback::init_module_for_test(skip);
+        let (_, _, mint_cap) = initialized_coin(chain, string::utf8(b"usdc"));
+
+        let c = coin::mint(&mint_cap, 1000000000);
+        coin::deposit(signer::address_of(skip), c);
+
+        post_action(
+            skip,
+            coin::denom_to_metadata(string::utf8(b"usdc")),
+            9193547,
+            1711667948005706000,
+            1,
+            address::from_sdk(string::utf8(b"init1wsdmqqsv2ze9uwvqz3mzn48jtqpawhrcfhfr25")),
+            from_bcs::to_vector_bytes(base64::from_string(string::utf8(b"AwoJY2hhbm5lbC0wLCtpbml0MXdzZG1xcXN2MnplOXV3dnF6M216bjQ4anRxcGF3aHJjZmhmcjI1AQA="))),
+        )
+    }
+
+    #[test_only]
+    fun initialized_coin(
+        account: &signer,
+        symbol: String,
+    ): (BurnCapability, FreezeCapability, MintCapability) {
+        let (mint_cap, burn_cap, freeze_cap, _) = coin::initialize_and_generate_extend_ref (
+            account,
+            std::option::none(),
+            string::utf8(b""),
+            symbol,
+            6,
+            string::utf8(b""),
+            string::utf8(b""),
+        );
+
+        return (burn_cap, freeze_cap, mint_cap)
     }
 }
