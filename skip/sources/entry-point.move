@@ -319,34 +319,7 @@ module skip::entrypoint {
                 memo,
             ) = unpack_action_ibctransfer_args(action_args);
 
-            let obj = simple_json::from_json_object(json::parse(memo));
-            simple_json::increase_depth(&mut obj);
-            simple_json::increase_depth(&mut obj);
-            /*
-                "async_callback": {
-                    "id": ,
-                    "module_address": "",
-                    "module_name": ""
-                }
-            */
-            simple_json::set_object(&mut obj, option::some(string::utf8(b"async_callback")));
-            simple_json::increase_depth(&mut obj);
-            simple_json::set_int_raw(
-                &mut obj, 
-                option::some(string::utf8(b"id")), 
-                true, (callback_id as u256),
-            );
-            simple_json::set_string(
-                &mut obj, 
-                option::some(string::utf8(b"module_address")), 
-                address::to_string(@skip),
-            );
-            simple_json::set_string(
-                &mut obj, 
-                option::some(string::utf8(b"module_name")), 
-                string::utf8(b"ackcallback"),
-            );
-            let memo = json::stringify(simple_json::to_json_object(&obj));
+            let memo = add_cb_to_memo(memo, callback_id, @skip);
 
             cosmos::transfer(
                 account,
@@ -377,6 +350,48 @@ module skip::entrypoint {
                 args,
             );
         }
+    }
+
+    fun add_cb_to_memo(memo: String, callback_id: u64, module_address: address): String {
+        if (string::length(&memo) == 0) {
+            memo = string::utf8(b"{}");
+        };
+
+        let obj = simple_json::from_json_object(json::parse(memo));
+        simple_json::increase_depth(&mut obj);
+        
+        let move_str = string::utf8(b"move");
+        let ok = simple_json::find_and_set_index(&mut obj, &move_str);
+        if(!ok) {
+            simple_json::set_to_last_index(&mut obj);
+            simple_json::set_object(&mut obj, option::some(move_str));
+        };
+        simple_json::increase_depth(&mut obj);
+        /*
+            "async_callback": {
+                "id": ,
+                "module_address": "",
+                "module_name": ""
+            }
+        */
+        simple_json::set_object(&mut obj, option::some(string::utf8(b"async_callback")));
+        simple_json::increase_depth(&mut obj);
+        simple_json::set_int_raw(
+            &mut obj, 
+            option::some(string::utf8(b"id")), 
+            true, (callback_id as u256),
+        );
+        simple_json::set_string(
+            &mut obj, 
+            option::some(string::utf8(b"module_address")), 
+            address::to_string(module_address),
+        );
+        simple_json::set_string(
+            &mut obj, 
+            option::some(string::utf8(b"module_name")), 
+            string::utf8(b"ackcallback"),
+        );
+        json::stringify(simple_json::to_json_object(&obj))
     }
 
     fun unpack_action_transfer_args(action_args: vector<vector<u8>>): address {
@@ -593,5 +608,71 @@ module skip::entrypoint {
         assert!(function_name == c, 3);
         assert!(type_args == d, 4);
         assert!(args == e, 5);
+    }
+
+    #[test_only]
+    use initia_std::coin::{BurnCapability, FreezeCapability, MintCapability};
+
+    #[test_only]
+    use initia_std::primary_fungible_store;
+
+    #[test(chain=@0x1, skip=@0x101)]
+    public fun test_post_action_with_empty_memo(chain: &signer, skip: &signer) {
+        init_module_for_test(skip);
+        primary_fungible_store::init_module_for_test(chain);
+        ackcallback::init_module_for_test(skip);
+        let (_, _, mint_cap) = initialized_coin(chain, string::utf8(b"usdc"));
+
+        let c = coin::mint(&mint_cap, 1000000000);
+        coin::deposit(signer::address_of(skip), c);
+
+        post_action(
+            skip,
+            coin::denom_to_metadata(string::utf8(b"usdc")),
+            9193547,
+            1711667948005706000,
+            1,
+            address::from_sdk(string::utf8(b"init1wsdmqqsv2ze9uwvqz3mzn48jtqpawhrcfhfr25")),
+            from_bcs::to_vector_bytes(base64::from_string(string::utf8(b"AwoJY2hhbm5lbC0wLCtpbml0MXdzZG1xcXN2MnplOXV3dnF6M216bjQ4anRxcGF3aHJjZmhmcjI1AQA="))),
+        )
+    }
+
+    #[test_only]
+    fun initialized_coin(
+        account: &signer,
+        symbol: String,
+    ): (BurnCapability, FreezeCapability, MintCapability) {
+        let (mint_cap, burn_cap, freeze_cap, _) = coin::initialize_and_generate_extend_ref (
+            account,
+            std::option::none(),
+            string::utf8(b""),
+            symbol,
+            6,
+            string::utf8(b""),
+            string::utf8(b""),
+        );
+
+        return (burn_cap, freeze_cap, mint_cap)
+    }
+
+    #[test]
+    fun test_add_cb_to_memo_empty() {
+        let memo = string::utf8(b"");
+        let memo = add_cb_to_memo(memo, 1, @0x101);
+        assert!(memo == string::utf8(b"{\"move\":{\"async_callback\":{\"id\":1,\"module_address\":\"0x0000000000000000000000000000000000000000000000000000000000000101\",\"module_name\":\"ackcallback\"}}}"), 0)
+    }
+
+    #[test]
+    fun test_add_cb_to_memo_only_move() {
+        let memo = string::utf8(b"{\"move\":{}}");
+        let memo = add_cb_to_memo(memo, 1, @0x101);
+        assert!(memo == string::utf8(b"{\"move\":{\"async_callback\":{\"id\":1,\"module_address\":\"0x0000000000000000000000000000000000000000000000000000000000000101\",\"module_name\":\"ackcallback\"}}}"), 0)
+    }
+
+    #[test]
+    fun test_add_cb_to_memo_except_move() {
+        let memo = string::utf8(b"{\"forward\":{\"receiver\":\"chain-c-bech32-address\"},\"wasm\":{}}");
+        let memo = add_cb_to_memo(memo, 1, @0x101);
+        assert!(memo == string::utf8(b"{\"forward\":{\"receiver\":\"chain-c-bech32-address\"},\"move\":{\"async_callback\":{\"id\":1,\"module_address\":\"0x0000000000000000000000000000000000000000000000000000000000000101\",\"module_name\":\"ackcallback\"}},\"wasm\":{}}"), 0)
     }
 }

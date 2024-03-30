@@ -113,4 +113,12 @@ module skip::ackcallback {
             }
         );
     }
+
+    #[test_only]
+    public fun init_module_for_test(
+        chain: &signer
+    ) {
+        init_module(chain);
+    }
+
 }
