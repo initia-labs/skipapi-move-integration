@@ -361,7 +361,7 @@ module skip::entrypoint {
         simple_json::increase_depth(&mut obj);
         
         let move_str = string::utf8(b"move");
-        let ok = simple_json::find_and_set_index_with_return(&mut obj, &move_str);
+        let ok = simple_json::try_find_and_set_index(&mut obj, &move_str);
         if(!ok) {
             simple_json::set_to_last_index(&mut obj);
             simple_json::set_object(&mut obj, option::some(move_str));
