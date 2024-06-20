@@ -57,7 +57,7 @@ module skip::initia_minitswap {
         let offer_amount = simulate_swap_exact_asset_out_(amount, pools, coins);
         assert!(offer_amount <= max_offer_amount, EMAX_OFFER_AMOUNT);
 
-
+        let amount = amount * 99 / 100;
         swap_exact_asset_in(account, offer_amount, pools, coins, amount);
     }
 
@@ -78,7 +78,7 @@ module skip::initia_minitswap {
     }
 
     #[view]
-    fun simulate_swap_exact_asset_in(
+    public fun simulate_swap_exact_asset_in(
         amount: u64,
         _pools: vector<String>,
         coins: vector<String>,
@@ -88,7 +88,6 @@ module skip::initia_minitswap {
         simulate_swap_exact_asset_in_(amount, vector::empty(), coins)
     }
 
-    #[view]
     fun simulate_swap_exact_asset_in_(
         amount: u64,
         _pools: vector<Object<Metadata>>,
@@ -99,7 +98,7 @@ module skip::initia_minitswap {
     }
 
     #[view]
-    fun simulate_swap_exact_asset_out(
+    public fun simulate_swap_exact_asset_out(
         amount: u64,
         _pools: vector<String>,
         coins: vector<String>,
@@ -109,7 +108,6 @@ module skip::initia_minitswap {
         simulate_swap_exact_asset_out_(amount, vector::empty(), coins)
     }
 
-    #[view]
     fun simulate_swap_exact_asset_out_(
         amount: u64,
         _pools: vector<Object<Metadata>>,
@@ -120,7 +118,7 @@ module skip::initia_minitswap {
     }
 
     #[view]
-    fun get_spot_price(
+    public fun get_spot_price(
         _pools: vector<String>,
         coins: vector<String>,
     ): Decimal128 {
@@ -129,19 +127,19 @@ module skip::initia_minitswap {
     }
 
     #[view]
-    fun simulate_swap_exact_asset_in_with_metadata(
+    public fun simulate_swap_exact_asset_in_with_metadata(
         amount: u64,
-        pools: vector<String>,
+        _pools: vector<String>,
         coins: vector<String>,
         include_spot_price: bool,
     ): SimulateSwapExactAssetInResponse {
         let response = SimulateSwapExactAssetInResponse {
-            amount_out: simulate_swap_exact_asset_in(amount, pools, coins),
+            amount_out: simulate_swap_exact_asset_in(amount, vector::empty(), coins),
             spot_price: option::none(),
         };
 
         if (include_spot_price) {
-            let spot_price = get_spot_price(pools, coins);
+            let spot_price = get_spot_price(vector::empty(), coins);
             response.spot_price = option::some(spot_price);
         };
         
@@ -149,19 +147,19 @@ module skip::initia_minitswap {
     }
 
     #[view]
-    fun simulate_swap_exact_asset_out_with_metadata(
+    public fun simulate_swap_exact_asset_out_with_metadata(
         amount: u64,
-        pools: vector<String>,
+        _pools: vector<String>,
         coins: vector<String>,
         include_spot_price: bool,
     ): SimulateSwapExactAssetOutResponse {
         let response = SimulateSwapExactAssetOutResponse {
-            amount_in: simulate_swap_exact_asset_out(amount, pools, coins),
+            amount_in: simulate_swap_exact_asset_out(amount, vector::empty(), coins),
             spot_price: option::none(),
         };
 
         if (include_spot_price) {
-            let spot_price = get_spot_price(pools, coins);
+            let spot_price = get_spot_price(vector::empty(), coins);
             response.spot_price = option::some(spot_price);
         };
         

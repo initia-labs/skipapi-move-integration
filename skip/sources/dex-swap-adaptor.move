@@ -64,6 +64,8 @@ module skip::initia_dex {
     ) {
         let offer_amount = simulate_swap_exact_asset_out_(amount, pools, coins);
         assert!(offer_amount <= max_offer_amount, EMAX_OFFER_AMOUNT);
+
+        let amount = amount * 99 / 100;
         swap_exact_asset_in(account, offer_amount, pools, coins, amount);
     }
 
@@ -84,7 +86,7 @@ module skip::initia_dex {
     }
 
     #[view]
-    fun simulate_swap_exact_asset_in(
+    public fun simulate_swap_exact_asset_in(
         amount: u64,
         pools: vector<String>,
         coins: vector<String>,
@@ -95,7 +97,6 @@ module skip::initia_dex {
         simulate_swap_exact_asset_in_(amount, pools, coins)
     }
 
-    #[view]
     fun simulate_swap_exact_asset_in_(
         amount: u64,
         pools: vector<Object<Config>>,
@@ -116,7 +117,7 @@ module skip::initia_dex {
     }
 
     #[view]
-    fun simulate_swap_exact_asset_out(
+    public fun simulate_swap_exact_asset_out(
         amount: u64,
         pools: vector<String>,
         coins: vector<String>,
@@ -127,7 +128,6 @@ module skip::initia_dex {
         simulate_swap_exact_asset_out_(amount, pools, coins)
     }
 
-     #[view]
     fun simulate_swap_exact_asset_out_(
         amount: u64,
         pools: vector<Object<Config>>,
@@ -148,7 +148,7 @@ module skip::initia_dex {
     }
 
     #[view]
-    fun get_spot_price(
+    public fun get_spot_price(
         pools: vector<String>,
         coins: vector<String>,
     ): Decimal128 {
@@ -174,7 +174,7 @@ module skip::initia_dex {
     }
 
     #[view]
-    fun simulate_swap_exact_asset_in_with_metadata(
+    public fun simulate_swap_exact_asset_in_with_metadata(
         amount: u64,
         pools: vector<String>,
         coins: vector<String>,
@@ -194,7 +194,7 @@ module skip::initia_dex {
     }
 
     #[view]
-    fun simulate_swap_exact_asset_out_with_metadata(
+    public fun simulate_swap_exact_asset_out_with_metadata(
         amount: u64,
         pools: vector<String>,
         coins: vector<String>,
