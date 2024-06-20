@@ -54,6 +54,12 @@ module skip::entrypoint {
     const EINVALID_ASSET: u64 = 3;
     const ELESS_THAN_MIN_ASSET: u64 = 4;
 
+    const POST_ACTION_TRANSFER: u8 = 0;
+    const POST_ACTION_IBCTRANSFER: u8 = 1;
+    const POST_ACTION_CONTRACT: u8 = 2;
+
+    const INITIAL_SWAP_VENUES: vector<vector<u8>> = vector[b"initia_dex", b"initia_minitswap", b"initia_stableswap"];
+
     #[event]
     struct AddSwapVenueEvent has drop, store {
         name: String,
@@ -63,28 +69,25 @@ module skip::entrypoint {
 
     fun init_module(chain: &signer) {
         let swap_venues = simple_map::create<String,AdaptorInfo>();
-        simple_map::add(&mut swap_venues, string::utf8(b"initiadex"), AdaptorInfo {
-            module_address: @skip,
-            module_name: string::utf8(b"initiadex"),
+        vector::for_each(INITIAL_SWAP_VENUES, |swap_venue| {
+            let swap_venue = string::utf8(swap_venue);
+            simple_map::add(&mut swap_venues, swap_venue, AdaptorInfo {
+                module_address: @skip,
+                module_name: swap_venue,
+            });
+            event::emit<AddSwapVenueEvent>(
+                AddSwapVenueEvent {
+                    name: swap_venue,
+                    module_address: @skip,
+                    module_name: swap_venue,
+                }
+            )
         });
-
         move_to(chain, ModuleStore {
             swap_venues: swap_venues,
-            swap_venue_count: 1,
+            swap_venue_count: vector::length(&INITIAL_SWAP_VENUES),
         });
-
-        event::emit<AddSwapVenueEvent>(
-            AddSwapVenueEvent {
-                name: string::utf8(b"initiadex"),
-                module_address: @skip,
-                module_name: string::utf8(b"initiadex"),
-            }
-        )
     }
-
-    const POST_ACTION_TRANSFER: u8 = 0;
-    const POST_ACTION_IBCTRANSFER: u8 = 1;
-    const POST_ACTION_CONTRACT: u8 = 2;
 
     //
     // Entry Functions
@@ -517,11 +520,14 @@ module skip::entrypoint {
 
         let module_store = borrow_global<ModuleStore>(signer::address_of(chain));
         let length = simple_map::length(&module_store.swap_venues);
-        assert!(length == 1, 1);
+        assert!(length == vector::length(&INITIAL_SWAP_VENUES), 1);
 
-        let swap_venue_info = simple_map::borrow(&module_store.swap_venues, &string::utf8(b"initiadex"));
-        assert!(swap_venue_info.module_address == @skip, 4);
-        assert!(swap_venue_info.module_name == string::utf8(b"initiadex"), 5);
+        vector::for_each(INITIAL_SWAP_VENUES, |swap_venue| {
+            let swap_venue = string::utf8(swap_venue);
+            let swap_venue_info = simple_map::borrow(&module_store.swap_venues, &swap_venue);
+            assert!(swap_venue_info.module_address == @skip, 2);
+            assert!(swap_venue_info.module_name == swap_venue, 3);
+        })
     }
 
     #[test(chain=@0x1)]
@@ -532,14 +538,15 @@ module skip::entrypoint {
 
         let events = event::emitted_events<AddSwapVenueEvent>();
         let length = vector::length(&events);
+        assert!(length == vector::length(&INITIAL_SWAP_VENUES), 1);
 
-        assert!(length == 1, 1);
-
-        let event = vector::borrow(&events, 0);
-        
-        assert!(event.name == string::utf8(b"initiadex"), 2);
-        assert!(event.module_address == @skip, 3);
-        assert!(event.module_name == string::utf8(b"initiadex"), 4);
+        vector::enumerate_ref(&INITIAL_SWAP_VENUES, |i, swap_venue| {
+            let swap_venue = string::utf8(*swap_venue);
+            let event = vector::borrow(&events, i);
+            assert!(event.name == swap_venue, 2);
+            assert!(event.module_address == @skip, 3);
+            assert!(event.module_name == swap_venue, 4);
+        });
     }
 
     #[test]
@@ -616,7 +623,7 @@ module skip::entrypoint {
     #[test_only]
     use initia_std::primary_fungible_store;
 
-    #[test(chain=@0x1, skip=@0x101)]
+    #[test(chain=@0x1, skip=@skip)]
     public fun test_post_action_with_empty_memo(chain: &signer, skip: &signer) {
         init_module_for_test(skip);
         primary_fungible_store::init_module_for_test(chain);
