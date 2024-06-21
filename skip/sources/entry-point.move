@@ -17,6 +17,7 @@ module skip::entrypoint {
     use initia_std::simple_json;
     use initia_std::option;
     use initia_std::address;
+    use initia_std::string_utils;
 
     use skip::ackcallback;
 
@@ -54,6 +55,13 @@ module skip::entrypoint {
     const EINVALID_ASSET: u64 = 3;
     const ELESS_THAN_MIN_ASSET: u64 = 4;
 
+    const POST_ACTION_TRANSFER: u8 = 0;
+    const POST_ACTION_IBCTRANSFER: u8 = 1;
+    const POST_ACTION_CONTRACT: u8 = 2;
+    const POST_ACTION_OPBRIDGE: u8 = 3;
+
+    const INITIAL_SWAP_VENUES: vector<vector<u8>> = vector[b"initia_dex", b"initia_minitswap", b"initia_stableswap"];
+
     #[event]
     struct AddSwapVenueEvent has drop, store {
         name: String,
@@ -63,28 +71,25 @@ module skip::entrypoint {
 
     fun init_module(chain: &signer) {
         let swap_venues = simple_map::create<String,AdaptorInfo>();
-        simple_map::add(&mut swap_venues, string::utf8(b"initiadex"), AdaptorInfo {
-            module_address: @skip,
-            module_name: string::utf8(b"initiadex"),
+        vector::for_each(INITIAL_SWAP_VENUES, |swap_venue| {
+            let swap_venue = string::utf8(swap_venue);
+            simple_map::add(&mut swap_venues, swap_venue, AdaptorInfo {
+                module_address: @skip,
+                module_name: swap_venue,
+            });
+            event::emit<AddSwapVenueEvent>(
+                AddSwapVenueEvent {
+                    name: swap_venue,
+                    module_address: @skip,
+                    module_name: swap_venue,
+                }
+            )
         });
-
         move_to(chain, ModuleStore {
             swap_venues: swap_venues,
-            swap_venue_count: 1,
+            swap_venue_count: vector::length(&INITIAL_SWAP_VENUES),
         });
-
-        event::emit<AddSwapVenueEvent>(
-            AddSwapVenueEvent {
-                name: string::utf8(b"initiadex"),
-                module_address: @skip,
-                module_name: string::utf8(b"initiadex"),
-            }
-        )
     }
-
-    const POST_ACTION_TRANSFER: u8 = 0;
-    const POST_ACTION_IBCTRANSFER: u8 = 1;
-    const POST_ACTION_CONTRACT: u8 = 2;
 
     //
     // Entry Functions
@@ -157,10 +162,11 @@ module skip::entrypoint {
 
     /// This is not entended to be executed by a user,
     /// but it will be executed by swap_and_action.
+    /// it will be executed with coin amount of (current_balance - pre_swap_balance)
     public entry fun post_action(
         account: &signer,
         coin: Object<Metadata>,
-        amount: u64,
+        pre_swap_balance: u64,
         timeout_timestamp: u64,
         post_swap_action: u8,
         recover_address: address,
@@ -169,7 +175,7 @@ module skip::entrypoint {
         post_action_(
             account,
             coin,
-            amount,
+            pre_swap_balance,
             timeout_timestamp,
             post_swap_action,
             recover_address,
@@ -230,9 +236,11 @@ module skip::entrypoint {
             swapmsg_args,
         );
 
+        let pre_swap_balance = coin::balance(signer::address_of(account), min_swap_coin);
+
         let postaction_args = create_postaction_args(
             min_swap_coin,
-            min_swap_amount,
+            pre_swap_balance,
             timeout_timestamp, 
             post_swap_action,
             recover_address,
@@ -271,7 +279,7 @@ module skip::entrypoint {
 
     fun create_postaction_args(
         coin: Object<Metadata>,
-        amount: u64,
+        pre_swap_balance: u64,
         timeout_timestamp: u64,
         post_swap_action: u8,
         recover_address: address,
@@ -279,14 +287,14 @@ module skip::entrypoint {
     ): vector<vector<u8>> {
         let msg_args = vector<vector<u8>>[];
         let coin_arg = bcs::to_bytes(&coin);
-        let amount_arg = bcs::to_bytes(&amount);
+        let pre_swap_balance_arg = bcs::to_bytes(&pre_swap_balance);
         let timeout_timestamp_arg = bcs::to_bytes(&timeout_timestamp);
         let post_swap_action_arg = bcs::to_bytes(&post_swap_action);
         let recover_address_arg = bcs::to_bytes(&recover_address);
         let action_arg = bcs::to_bytes(&action_args);
 
         vector::push_back(&mut msg_args, coin_arg);
-        vector::push_back(&mut msg_args, amount_arg);
+        vector::push_back(&mut msg_args, pre_swap_balance_arg);
         vector::push_back(&mut msg_args, timeout_timestamp_arg);
         vector::push_back(&mut msg_args, post_swap_action_arg);
         vector::push_back(&mut msg_args, recover_address_arg);
@@ -298,7 +306,7 @@ module skip::entrypoint {
     fun post_action_(
         account: &signer,
         coin: Object<Metadata>,
-        amount: u64,
+        pre_swap_balance: u64,
         timeout_timestamp: u64,
         post_swap_action: u8,
         recover_address: address,
@@ -306,7 +314,8 @@ module skip::entrypoint {
     ) {
         let account_addr = signer::address_of(account);
         let post_swap_balance = coin::balance(account_addr,coin);
-        assert!(post_swap_balance >= amount, error::invalid_state(ELESS_THAN_MIN_ASSET));
+        assert!(post_swap_balance >= pre_swap_balance, error::invalid_state(ELESS_THAN_MIN_ASSET));
+        let amount = post_swap_balance - pre_swap_balance;
 
         if(post_swap_action == POST_ACTION_TRANSFER) {
             let to_address = unpack_action_transfer_args(action_args);
@@ -349,7 +358,39 @@ module skip::entrypoint {
                 type_args,
                 args,
             );
+        } else if(post_swap_action == POST_ACTION_OPBRIDGE) {
+            let (
+                bridge_id,
+                to,
+                data
+            ) = unpack_action_opbridge_args(action_args);
+            initiate_token_deposit(account, bridge_id, to, coin, amount, data);
         }
+    }
+
+    fun initiate_token_deposit(
+        sender: &signer,
+        bridge_id: u64,
+        to: String,
+        metadata: Object<Metadata>,
+        amount: u64,
+        data: String
+    ) {
+        let obj = simple_json::empty();
+        simple_json::set_object(&mut obj, option::none<String>());
+        simple_json::increase_depth(&mut obj);
+        simple_json::set_string(&mut obj, option::some(string::utf8(b"@type")), string::utf8(b"/opinit.ophost.v1.MsgInitiateTokenDeposit"));
+        simple_json::set_string(&mut obj, option::some(string::utf8(b"sender")), address::to_sdk(signer::address_of(sender)));
+        simple_json::set_string(&mut obj, option::some(string::utf8(b"bridge_id")), string_utils::to_string(&bridge_id));
+        simple_json::set_string(&mut obj, option::some(string::utf8(b"to")), to);
+        simple_json::set_string(&mut obj, option::some(string::utf8(b"data")), base64::to_string(*string::bytes(&data)));
+        simple_json::set_object(&mut obj, option::some(string::utf8(b"amount")));
+        simple_json::increase_depth(&mut obj);
+        simple_json::set_string(&mut obj, option::some(string::utf8(b"denom")), coin::metadata_to_denom(metadata));
+        simple_json::set_string(&mut obj, option::some(string::utf8(b"amount")), string_utils::to_string(&amount));
+
+        let req = json::stringify(simple_json::to_json_object(&obj));
+        cosmos::stargate(sender, req);
     }
 
     fun add_cb_to_memo(memo: String, callback_id: u64, module_address: address): String {
@@ -439,6 +480,22 @@ module skip::entrypoint {
         )
     }
 
+    fun unpack_action_opbridge_args(action_args: vector<vector<u8>>): (u64, String, String) {
+        assert!(vector::length(&action_args) == 3, error::invalid_argument(0));
+        let arg = vector::pop_back(&mut action_args);
+        let data = from_bcs::to_string(arg);
+        let arg = vector::pop_back(&mut action_args);
+        let to = from_bcs::to_string(arg);
+        let arg = vector::pop_back(&mut action_args);
+        let bridge_id: u64 = from_bcs::to_u64(arg);
+
+        (
+            bridge_id,
+            to,
+            data,
+        )
+    }
+
     //
     // View Functions
     //
@@ -469,6 +526,15 @@ module skip::entrypoint {
         vector::push_back(&mut action_args, bcs::to_bytes(&function_name));
         vector::push_back(&mut action_args, bcs::to_bytes(&type_args));
         vector::push_back(&mut action_args, bcs::to_bytes(&args));
+        action_args
+    }
+
+    #[view]
+    fun pack_action_opbridge_args(bridge_id: u64, to: String, data: String): vector<vector<u8>> {
+        let action_args = vector<vector<u8>>[];
+        vector::push_back(&mut action_args, bcs::to_bytes(&bridge_id));
+        vector::push_back(&mut action_args, bcs::to_bytes(&to));
+        vector::push_back(&mut action_args, bcs::to_bytes(&data));
         action_args
     }
 
@@ -517,11 +583,14 @@ module skip::entrypoint {
 
         let module_store = borrow_global<ModuleStore>(signer::address_of(chain));
         let length = simple_map::length(&module_store.swap_venues);
-        assert!(length == 1, 1);
+        assert!(length == vector::length(&INITIAL_SWAP_VENUES), 1);
 
-        let swap_venue_info = simple_map::borrow(&module_store.swap_venues, &string::utf8(b"initiadex"));
-        assert!(swap_venue_info.module_address == @skip, 4);
-        assert!(swap_venue_info.module_name == string::utf8(b"initiadex"), 5);
+        vector::for_each(INITIAL_SWAP_VENUES, |swap_venue| {
+            let swap_venue = string::utf8(swap_venue);
+            let swap_venue_info = simple_map::borrow(&module_store.swap_venues, &swap_venue);
+            assert!(swap_venue_info.module_address == @skip, 2);
+            assert!(swap_venue_info.module_name == swap_venue, 3);
+        })
     }
 
     #[test(chain=@0x1)]
@@ -532,14 +601,15 @@ module skip::entrypoint {
 
         let events = event::emitted_events<AddSwapVenueEvent>();
         let length = vector::length(&events);
+        assert!(length == vector::length(&INITIAL_SWAP_VENUES), 1);
 
-        assert!(length == 1, 1);
-
-        let event = vector::borrow(&events, 0);
-        
-        assert!(event.name == string::utf8(b"initiadex"), 2);
-        assert!(event.module_address == @skip, 3);
-        assert!(event.module_name == string::utf8(b"initiadex"), 4);
+        vector::enumerate_ref(&INITIAL_SWAP_VENUES, |i, swap_venue| {
+            let swap_venue = string::utf8(*swap_venue);
+            let event = vector::borrow(&events, i);
+            assert!(event.name == swap_venue, 2);
+            assert!(event.module_address == @skip, 3);
+            assert!(event.module_name == swap_venue, 4);
+        });
     }
 
     #[test]
@@ -563,6 +633,19 @@ module skip::entrypoint {
         assert!(source_channel == a, 1);
         assert!(receiver == b, 2);
         assert!(memo == c, 3);
+    }
+
+    #[test]
+    public fun pack_unpack_action_opbridge_args() {
+        let bridge_id = 1;
+        let to = string::utf8(b"init1rh03awuuy7t82n4pmtdaa6gj4duneaj8gghkqp");
+        let data = string::utf8(b"abc");
+
+        let packed_args = pack_action_opbridge_args(bridge_id, to, data);
+        let (a, b, c) = unpack_action_opbridge_args(packed_args);
+        assert!(bridge_id == a, 1);
+        assert!(to == b, 2);
+        assert!(data == c, 3);
     }
 
     #[test]
@@ -616,7 +699,7 @@ module skip::entrypoint {
     #[test_only]
     use initia_std::primary_fungible_store;
 
-    #[test(chain=@0x1, skip=@0x101)]
+    #[test(chain=@0x1, skip=@skip)]
     public fun test_post_action_with_empty_memo(chain: &signer, skip: &signer) {
         init_module_for_test(skip);
         primary_fungible_store::init_module_for_test(chain);

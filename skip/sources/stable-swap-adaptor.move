@@ -1,10 +1,10 @@
-module skip::initiadex {
+module skip::initia_stableswap {
     use std::signer;
     use std::vector;
     use std::option::{Self, Option};
     use std::error;
 
-    use initia_std::dex::{Self, Config};
+    use initia_std::stableswap::{Self, Pool};
     use initia_std::decimal128::{Self, Decimal128};
     use initia_std::coin;
     use initia_std::fungible_asset::{Self, Metadata};
@@ -29,19 +29,20 @@ module skip::initiadex {
     public entry fun swap_exact_asset_in(
         account: &signer,
         amount: u64,
-        pools: vector<Object<Config>>,
+        pools: vector<Object<Pool>>,
         coins: vector<Object<Metadata>>,
         min_amount: u64,
     ) {
-        let swap_length = vector::length<Object<Config>>(&pools);
+        let swap_length = vector::length<Object<Pool>>(&pools);
         let i = 0;
 
         let coin_in_metadata = vector::borrow<Object<Metadata>>(&coins, i);
         let offer_coin = coin::withdraw(account, *coin_in_metadata, amount);
         
         while(i < swap_length) {
-            let pair = vector::borrow<Object<Config>>(&pools, i);
-            let return_coin = dex::swap(*pair, offer_coin);
+            let pool = vector::borrow<Object<Pool>>(&pools, i);
+            let coin_out_metadata = vector::borrow<Object<Metadata>>(&coins, i+1);
+            let return_coin = stableswap::swap(*pool, offer_coin, *coin_out_metadata,option::none());
             
             offer_coin = return_coin;
             i = i + 1;
@@ -58,12 +59,15 @@ module skip::initiadex {
     public entry fun swap_exact_asset_out(
         account: &signer,
         amount: u64,
-        pools: vector<Object<Config>>,
+        pools: vector<Object<Pool>>,
         coins: vector<Object<Metadata>>,
         max_offer_amount: u64,
     ) {
         let offer_amount = simulate_swap_exact_asset_out_(amount, pools, coins);
         assert!(offer_amount <= max_offer_amount, EMAX_OFFER_AMOUNT);
+
+        // simulation is not accurate. 
+        let amount = amount * 99 / 100;
         swap_exact_asset_in(account, offer_amount, pools, coins, amount);
     }
 
@@ -84,7 +88,7 @@ module skip::initiadex {
     }
 
     #[view]
-    fun simulate_swap_exact_asset_in(
+    public fun simulate_swap_exact_asset_in(
         amount: u64,
         pools: vector<String>,
         coins: vector<String>,
@@ -95,20 +99,20 @@ module skip::initiadex {
         simulate_swap_exact_asset_in_(amount, pools, coins)
     }
 
-    #[view]
     fun simulate_swap_exact_asset_in_(
         amount: u64,
-        pools: vector<Object<Config>>,
+        pools: vector<Object<Pool>>,
         coins: vector<Object<Metadata>>,
     ): u64 {
-        let swap_length = vector::length<Object<Config>>(&pools);
+        let swap_length = vector::length<Object<Pool>>(&pools);
         let i = 0;
 
         while(i < swap_length) {
-            let pair = vector::borrow<Object<Config>>(&pools, i);
+            let pair = vector::borrow<Object<Pool>>(&pools, i);
             let coin_in_metadata = vector::borrow<Object<Metadata>>(&coins, i);
+            let coin_out_metadata = vector::borrow<Object<Metadata>>(&coins, i+1);
 
-            amount = dex::get_swap_simulation(*pair, *coin_in_metadata, amount);
+            amount = stableswap::get_swap_simulation(*pair, *coin_in_metadata, *coin_out_metadata, amount);
             i = i + 1;
         };
         
@@ -116,7 +120,7 @@ module skip::initiadex {
     }
 
     #[view]
-    fun simulate_swap_exact_asset_out(
+    public fun simulate_swap_exact_asset_out(
         amount: u64,
         pools: vector<String>,
         coins: vector<String>,
@@ -127,20 +131,20 @@ module skip::initiadex {
         simulate_swap_exact_asset_out_(amount, pools, coins)
     }
 
-     #[view]
     fun simulate_swap_exact_asset_out_(
         amount: u64,
-        pools: vector<Object<Config>>,
+        pools: vector<Object<Pool>>,
         coins: vector<Object<Metadata>>,
     ): u64 {
-        let swap_length = vector::length<Object<Config>>(&pools);
+        let swap_length = vector::length<Object<Pool>>(&pools);
         let i = swap_length;
 
         while(i > 0) {
-            let pair = vector::borrow<Object<Config>>(&pools, i-1);
+            let pair = vector::borrow<Object<Pool>>(&pools, i-1);
             let coin_in_metadata = vector::borrow<Object<Metadata>>(&coins, i-1);
+            let coin_out_metadata = vector::borrow<Object<Metadata>>(&coins, i);
 
-            amount = dex::get_swap_simulation_given_out(*pair, *coin_in_metadata, amount);
+            amount = stableswap::get_swap_simulation_given_out(*pair, *coin_in_metadata, *coin_out_metadata, amount);
             i = i - 1;
         };
         
@@ -148,7 +152,7 @@ module skip::initiadex {
     }
 
     #[view]
-    fun get_spot_price(
+    public fun get_spot_price(
         pools: vector<String>,
         coins: vector<String>,
     ): Decimal128 {
@@ -160,10 +164,11 @@ module skip::initiadex {
         let coins = vector::map(coins, |coin| coin::denom_to_metadata(coin));
 
         while(i < swap_length) {
-            let pair = vector::borrow<Object<Config>>(&pools, i);
+            let pair = vector::borrow<Object<Pool>>(&pools, i);
+            let coin_in_metadata = vector::borrow<Object<Metadata>>(&coins, i);
             let coin_out_metadata = vector::borrow<Object<Metadata>>(&coins, i+1);
 
-            let price128 = dex::get_spot_price(*pair, *coin_out_metadata);
+            let price128 = stableswap::spot_price(*pair, *coin_in_metadata, *coin_out_metadata);
             let price256 = decimal128::new(decimal128::val(&price128));
 
             spot_price = decimal128::mul(&spot_price, &price256);
@@ -174,7 +179,7 @@ module skip::initiadex {
     }
 
     #[view]
-    fun simulate_swap_exact_asset_in_with_metadata(
+    public fun simulate_swap_exact_asset_in_with_metadata(
         amount: u64,
         pools: vector<String>,
         coins: vector<String>,
@@ -194,7 +199,7 @@ module skip::initiadex {
     }
 
     #[view]
-    fun simulate_swap_exact_asset_out_with_metadata(
+    public fun simulate_swap_exact_asset_out_with_metadata(
         amount: u64,
         pools: vector<String>,
         coins: vector<String>,
@@ -239,58 +244,29 @@ module skip::initiadex {
     #[test_only]
     fun initialized_module_for_test(
         chain: &signer
-    ): (vector<Object<Config>>, vector<Object<Metadata>>) {
-        dex::init_module_for_test(chain);
+    ): (vector<Object<Pool>>, vector<Object<Metadata>>) {
+        stableswap::init_module_for_test(chain);
         primary_fungible_store::init_module_for_test(chain);
 
         let chain_addr = signer::address_of(chain);
-
-        let (_, _, initia_mint_cap) = initialized_coin(chain, string::utf8(b"INIT"));
-        let (_, _, usdc_mint_cap) = initialized_coin(chain, string::utf8(b"USDC"));
-        let (_, _, usdt_mint_cap) = initialized_coin(chain, string::utf8(b"USDT"));
-        let init_metadata = coin::metadata(chain_addr, string::utf8(b"INIT"));
-        let usdc_metadata = coin::metadata(chain_addr, string::utf8(b"USDC"));
-        let usdt_metadata = coin::metadata(chain_addr, string::utf8(b"USDT"));
-
-        coin::mint_to(&initia_mint_cap, chain_addr, 1010000);
-        coin::mint_to(&usdc_mint_cap, chain_addr, 20000000);
-        coin::mint_to(&usdt_mint_cap, chain_addr, 10000000);
-
-        dex::create_pair_script(
-            chain, 
-            std::string::utf8(b"name"),
-            std::string::utf8(b"SYMBOL"),
-            decimal128::from_ratio(2, 1000),
-            decimal128::from_ratio(1, 10),
-            decimal128::from_ratio(1, 10),
-            init_metadata,
-            usdc_metadata,
-            1000000,
-            10000000,
+        let (_, _, a_mint_cap) = initialized_coin(chain, string::utf8(b"a"));
+        let (_, _, b_mint_cap) = initialized_coin(chain, string::utf8(b"b"));
+        coin::mint_to(&a_mint_cap, chain_addr, 1000000000);
+        coin::mint_to(&b_mint_cap, chain_addr, 1000000000);
+        let metadata_a = coin::metadata(chain_addr, string::utf8(b"a"));
+        let metadata_b = coin::metadata(chain_addr, string::utf8(b"b"));
+        stableswap::create_pool_script(
+            chain, string::utf8(b"lp"),
+            string::utf8(b"lp"),
+            decimal128::from_ratio(5,10000),
+            vector[metadata_a, metadata_b],
+            vector[150000000, 150000000],
+            6000
         );
+        let metadata_lp = coin::metadata(chain_addr, string::utf8(b"lp"));
+        let pool = object::convert<Metadata, Pool>(metadata_lp);
 
-        dex::create_pair_script(
-            chain, 
-            std::string::utf8(b"nam2"),
-            std::string::utf8(b"SYMBOL2"),
-            decimal128::from_ratio(1, 100),
-            decimal128::from_ratio(1, 10),
-            decimal128::from_ratio(1, 10),
-            usdc_metadata,
-            usdt_metadata,
-            10000000,
-            10000000,
-        );
-
-        let pool_metadata = coin::metadata(chain_addr, string::utf8(b"SYMBOL"));
-        let pair = object::convert<Metadata, Config>(pool_metadata);
-        let pool2_metadata = coin::metadata(chain_addr, string::utf8(b"SYMBOL2"));
-        let pair2 = object::convert<Metadata, Config>(pool2_metadata);
-
-        let pools = vector[pair, pair2];
-        let coins = vector[init_metadata, usdc_metadata, usdt_metadata];
-
-        (pools, coins)
+        (vector[pool], vector[metadata_a, metadata_b])
     }
 
     #[test(chain = @0x1)]
@@ -300,15 +276,10 @@ module skip::initiadex {
         let chain_addr = signer::address_of(&chain);
         let (pools, coins) = initialized_module_for_test(&chain);
 
-        swap_exact_asset_in(&chain, 100, pools, coins, 10);
-
-        let init_balance_after_swap = coin::balance(chain_addr, *vector::borrow(&coins, 0));
-        let usdc_balance_after_swap = coin::balance(chain_addr, *vector::borrow(&coins, 1));
-        let usdt_balance_after_swap = coin::balance(chain_addr, *vector::borrow(&coins, 2));
-
-        assert!(init_balance_after_swap == 9900, 0);
-        assert!(usdc_balance_after_swap == 0, 1);
-        assert!(usdt_balance_after_swap == 989, 2);
+        swap_exact_asset_in(&chain, 1000000, pools, coins, 100);
+        
+        assert!(coin::balance(chain_addr, *vector::borrow(&coins, 0)) == 849000000, 1);
+        assert!(coin::balance(chain_addr, *vector::borrow(&coins, 1)) == 850999285, 2);
     }
 
     #[test(chain = @0x1)]
@@ -318,15 +289,10 @@ module skip::initiadex {
         let chain_addr = signer::address_of(&chain);
         let (pools, coins) = initialized_module_for_test(&chain);
 
-        swap_exact_asset_out(&chain, 989, pools, coins, 100);
-
-        let init_balance_after_swap = coin::balance(chain_addr, *vector::borrow(&coins, 0));
-        let usdc_balance_after_swap = coin::balance(chain_addr, *vector::borrow(&coins, 1));
-        let usdt_balance_after_swap = coin::balance(chain_addr, *vector::borrow(&coins, 2));
-
-        assert!(init_balance_after_swap == 9900, 0);
-        assert!(usdc_balance_after_swap == 0, 1);
-        assert!(usdt_balance_after_swap == 989, 2);
+        swap_exact_asset_out(&chain, 999285, pools, coins, 100000000);
+        
+        assert!(coin::balance(chain_addr, *vector::borrow(&coins, 0)) == 849000000, 1);
+        assert!(coin::balance(chain_addr, *vector::borrow(&coins, 1)) == 850999285, 2);
     }
 
     #[test(chain = @0x1)]
@@ -334,8 +300,8 @@ module skip::initiadex {
         chain: signer
     ) {
         let (pools, coins) = initialized_module_for_test(&chain);
-        let expected_amount = simulate_swap_exact_asset_in_(100, pools, coins);
-        assert!(expected_amount == 989, 0);
+        let expected_amount = simulate_swap_exact_asset_in_(1000000, pools, coins);
+        assert!(expected_amount == 999285, 0);
     }
 
     #[test(chain = @0x1)]
@@ -343,7 +309,7 @@ module skip::initiadex {
         chain: signer
     ) {
         let (pools, coins) = initialized_module_for_test(&chain);
-        let expected_amount = simulate_swap_exact_asset_out_(989, pools, coins);
-        assert!(expected_amount == 100, 0);
+        let expected_amount = simulate_swap_exact_asset_out_(999285, pools, coins);
+        assert!(expected_amount == 1000000, 0);
     }
 }
