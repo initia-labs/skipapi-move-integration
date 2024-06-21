@@ -160,10 +160,11 @@ module skip::entrypoint {
 
     /// This is not entended to be executed by a user,
     /// but it will be executed by swap_and_action.
+    /// it will be executed with coin amount of (current_balance - pre_swap_balance)
     public entry fun post_action(
         account: &signer,
         coin: Object<Metadata>,
-        amount: u64,
+        pre_swap_balance: u64,
         timeout_timestamp: u64,
         post_swap_action: u8,
         recover_address: address,
@@ -172,7 +173,7 @@ module skip::entrypoint {
         post_action_(
             account,
             coin,
-            amount,
+            pre_swap_balance,
             timeout_timestamp,
             post_swap_action,
             recover_address,
@@ -233,9 +234,11 @@ module skip::entrypoint {
             swapmsg_args,
         );
 
+        let pre_swap_balance = coin::balance(signer::address_of(account), min_swap_coin);
+
         let postaction_args = create_postaction_args(
             min_swap_coin,
-            min_swap_amount,
+            pre_swap_balance,
             timeout_timestamp, 
             post_swap_action,
             recover_address,
@@ -274,7 +277,7 @@ module skip::entrypoint {
 
     fun create_postaction_args(
         coin: Object<Metadata>,
-        amount: u64,
+        pre_swap_balance: u64,
         timeout_timestamp: u64,
         post_swap_action: u8,
         recover_address: address,
@@ -282,14 +285,14 @@ module skip::entrypoint {
     ): vector<vector<u8>> {
         let msg_args = vector<vector<u8>>[];
         let coin_arg = bcs::to_bytes(&coin);
-        let amount_arg = bcs::to_bytes(&amount);
+        let pre_swap_balance_arg = bcs::to_bytes(&pre_swap_balance);
         let timeout_timestamp_arg = bcs::to_bytes(&timeout_timestamp);
         let post_swap_action_arg = bcs::to_bytes(&post_swap_action);
         let recover_address_arg = bcs::to_bytes(&recover_address);
         let action_arg = bcs::to_bytes(&action_args);
 
         vector::push_back(&mut msg_args, coin_arg);
-        vector::push_back(&mut msg_args, amount_arg);
+        vector::push_back(&mut msg_args, pre_swap_balance_arg);
         vector::push_back(&mut msg_args, timeout_timestamp_arg);
         vector::push_back(&mut msg_args, post_swap_action_arg);
         vector::push_back(&mut msg_args, recover_address_arg);
@@ -301,7 +304,7 @@ module skip::entrypoint {
     fun post_action_(
         account: &signer,
         coin: Object<Metadata>,
-        amount: u64,
+        pre_swap_balance: u64,
         timeout_timestamp: u64,
         post_swap_action: u8,
         recover_address: address,
@@ -309,7 +312,8 @@ module skip::entrypoint {
     ) {
         let account_addr = signer::address_of(account);
         let post_swap_balance = coin::balance(account_addr,coin);
-        assert!(post_swap_balance >= amount, error::invalid_state(ELESS_THAN_MIN_ASSET));
+        assert!(post_swap_balance >= pre_swap_balance, error::invalid_state(ELESS_THAN_MIN_ASSET));
+        let amount = post_swap_balance - pre_swap_balance;
 
         if(post_swap_action == POST_ACTION_TRANSFER) {
             let to_address = unpack_action_transfer_args(action_args);
