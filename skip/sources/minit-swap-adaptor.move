@@ -93,7 +93,7 @@ module skip::initia_minitswap {
         _pools: vector<Object<Metadata>>,
         coins: vector<Object<Metadata>>
     ): u64 {
-        let (return_amount, _) = minitswap::safe_swap_simulation(*vector::borrow(&coins, 0), *vector::borrow(&coins, 1), amount);
+        let (return_amount, _) = minitswap::swap_simulation(*vector::borrow(&coins, 0), *vector::borrow(&coins, 1), amount);
         return_amount
     }
 
@@ -113,7 +113,7 @@ module skip::initia_minitswap {
         _pools: vector<Object<Metadata>>,
         coins: vector<Object<Metadata>>,
     ): u64 {
-        let (offer_amount, _) = minitswap::safe_swap_simulation_given_out(*vector::borrow(&coins, 0), *vector::borrow(&coins, 1), amount);
+        let (offer_amount, _) = minitswap::swap_simulation_given_out(*vector::borrow(&coins, 0), *vector::borrow(&coins, 1), amount);
         offer_amount
     }
 
@@ -210,55 +210,39 @@ module skip::initia_minitswap {
         let chain_addr = signer::address_of(chain);
 
         let (_, _, initia_mint_cap) = initialized_coin(chain, string::utf8(b"uinit"));
-        let (_, _, ibc_op_init_1_mint_cap) = initialized_coin(chain, string::utf8(b"ibc/82EB1C694C571F954E68BFD68CFCFCD6123B0EBB69AAA8BAB7A082939B45E802"));
-        let (_, _, ibc_op_init_2_mint_cap) = initialized_coin(chain, string::utf8(b"ibc/AD8D520BF2D981113B652A3BCD55368EF146FCB9E016F8B1DAECAA5D570BC8A1"));
+        let (_, _, l2_1_mint_cap) = initialized_coin(chain, string::utf8(b"L2 1"));
+        let (_, _, l2_2_mint_cap) = initialized_coin(chain, string::utf8(b"L2 2"));
         let init_metadata = coin::metadata(chain_addr, string::utf8(b"uinit"));
-        let ibc_op_init_1_metadata = coin::metadata(chain_addr, string::utf8(b"ibc/82EB1C694C571F954E68BFD68CFCFCD6123B0EBB69AAA8BAB7A082939B45E802"));
-        let ibc_op_init_2_metadata = coin::metadata(chain_addr, string::utf8(b"ibc/AD8D520BF2D981113B652A3BCD55368EF146FCB9E016F8B1DAECAA5D570BC8A1"));
+        let l2_1_metadata = coin::metadata(chain_addr, string::utf8(b"L2 1"));
+        let l2_2_metadata = coin::metadata(chain_addr, string::utf8(b"L2 2"));
 
         coin::mint_to(&initia_mint_cap, chain_addr, 100000000);
-        coin::mint_to(&ibc_op_init_1_mint_cap, chain_addr, 1000000000);
-        coin::mint_to(&ibc_op_init_2_mint_cap, chain_addr, 1000000000);
+        coin::mint_to(&l2_1_mint_cap, chain_addr, 1000000000);
+        coin::mint_to(&l2_2_mint_cap, chain_addr, 1000000000);
         minitswap::provide(chain, 15000000, option::none());
 
+
         minitswap::create_pool(
             chain,
-            ibc_op_init_1_metadata,
+            l2_1_metadata,
             decimal128::from_ratio(100000, 1),
             10000000,
             3000,
             decimal128::from_ratio(7, 10),
             decimal128::from_ratio(2, 1),
-            0,
-            string::utf8(b"0x1"),
-            1,
-            string::utf8(b"channel-0"),
         );
 
         minitswap::create_pool(
             chain,
-            ibc_op_init_2_metadata,
+            l2_2_metadata,
             decimal128::from_ratio(100000, 1),
             10000000,
             3000,
             decimal128::from_ratio(7, 10),
             decimal128::from_ratio(2, 1),
-            0,
-            string::utf8(b"0x1"),
-            2,
-            string::utf8(b"channel-2"),
         );
 
-        minitswap::create_stableswap_pool(
-            chain,
-            1,
-            string::utf8(b"channel-0"),
-            ibc_op_init_1_metadata,
-            10000000,
-            10000000
-        );
-
-        vector[init_metadata,ibc_op_init_1_metadata,ibc_op_init_2_metadata]
+        vector[init_metadata,l2_1_metadata,l2_2_metadata]
     }
 
     #[test(chain = @0x1)]
