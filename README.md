@@ -52,7 +52,7 @@ After making a swap message, it makes `post_action` message from `create_postact
 ```move
 fun create_postaction_args(
  coin: Object<Metadata>,
- amount: u64,
+ pre_swap_balance: u64,
  timeout_timestamp: u64,
  post_swap_action: u8,
  action_args: vector<vector<u8>>,
@@ -154,6 +154,8 @@ POST_SWAP_ACTION =
  0: POST_ACTION_TRANSFER
  1: POST_ACTION_IBCTRANSFER
  2: POST_ACTION_CONTRACT
+ 3: POST_ACTION_OPBRIDGE
+
 RAW_HEX_BYTES_ARGS = pack_action_{action}_args(...)
 ibc transfer ex) 43574e6f595735755a5777744d413d3d,4b6a42344d555245526a4646516b4935517a49334f5459334e5452465154464551555243524556464f544579515549334f544e44526a59304e773d3d,41414141414141414141413d,32424941414141414141413d,41413d3d
 
