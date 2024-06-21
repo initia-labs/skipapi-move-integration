@@ -17,6 +17,7 @@ module skip::entrypoint {
     use initia_std::simple_json;
     use initia_std::option;
     use initia_std::address;
+    use initia_std::string_utils;
 
     use skip::ackcallback;
 
@@ -57,6 +58,7 @@ module skip::entrypoint {
     const POST_ACTION_TRANSFER: u8 = 0;
     const POST_ACTION_IBCTRANSFER: u8 = 1;
     const POST_ACTION_CONTRACT: u8 = 2;
+    const POST_ACTION_OPBRIDGE: u8 = 3;
 
     const INITIAL_SWAP_VENUES: vector<vector<u8>> = vector[b"initia_dex", b"initia_minitswap", b"initia_stableswap"];
 
@@ -356,7 +358,39 @@ module skip::entrypoint {
                 type_args,
                 args,
             );
+        } else if(post_swap_action == POST_ACTION_OPBRIDGE) {
+            let (
+                bridge_id,
+                to,
+                data
+            ) = unpack_action_opbridge_args(action_args);
+            initiate_token_deposit(account, bridge_id, to, coin, amount, data);
         }
+    }
+
+    fun initiate_token_deposit(
+        sender: &signer,
+        bridge_id: u64,
+        to: String,
+        metadata: Object<Metadata>,
+        amount: u64,
+        data: String
+    ) {
+        let obj = simple_json::empty();
+        simple_json::set_object(&mut obj, option::none<String>());
+        simple_json::increase_depth(&mut obj);
+        simple_json::set_string(&mut obj, option::some(string::utf8(b"@type")), string::utf8(b"/opinit.ophost.v1.MsgInitiateTokenDeposit"));
+        simple_json::set_string(&mut obj, option::some(string::utf8(b"sender")), address::to_sdk(signer::address_of(sender)));
+        simple_json::set_string(&mut obj, option::some(string::utf8(b"bridge_id")), string_utils::to_string(&bridge_id));
+        simple_json::set_string(&mut obj, option::some(string::utf8(b"to")), to);
+        simple_json::set_string(&mut obj, option::some(string::utf8(b"data")), base64::to_string(*string::bytes(&data)));
+        simple_json::set_object(&mut obj, option::some(string::utf8(b"amount")));
+        simple_json::increase_depth(&mut obj);
+        simple_json::set_string(&mut obj, option::some(string::utf8(b"denom")), coin::metadata_to_denom(metadata));
+        simple_json::set_string(&mut obj, option::some(string::utf8(b"amount")), string_utils::to_string(&amount));
+
+        let req = json::stringify(simple_json::to_json_object(&obj));
+        cosmos::stargate(sender, req);
     }
 
     fun add_cb_to_memo(memo: String, callback_id: u64, module_address: address): String {
@@ -446,6 +480,22 @@ module skip::entrypoint {
         )
     }
 
+    fun unpack_action_opbridge_args(action_args: vector<vector<u8>>): (u64, String, String) {
+        assert!(vector::length(&action_args) == 3, error::invalid_argument(0));
+        let arg = vector::pop_back(&mut action_args);
+        let data = from_bcs::to_string(arg);
+        let arg = vector::pop_back(&mut action_args);
+        let to = from_bcs::to_string(arg);
+        let arg = vector::pop_back(&mut action_args);
+        let bridge_id: u64 = from_bcs::to_u64(arg);
+
+        (
+            bridge_id,
+            to,
+            data,
+        )
+    }
+
     //
     // View Functions
     //
@@ -476,6 +526,15 @@ module skip::entrypoint {
         vector::push_back(&mut action_args, bcs::to_bytes(&function_name));
         vector::push_back(&mut action_args, bcs::to_bytes(&type_args));
         vector::push_back(&mut action_args, bcs::to_bytes(&args));
+        action_args
+    }
+
+    #[view]
+    fun pack_action_opbridge_args(bridge_id: u64, to: String, data: String): vector<vector<u8>> {
+        let action_args = vector<vector<u8>>[];
+        vector::push_back(&mut action_args, bcs::to_bytes(&bridge_id));
+        vector::push_back(&mut action_args, bcs::to_bytes(&to));
+        vector::push_back(&mut action_args, bcs::to_bytes(&data));
         action_args
     }
 
@@ -574,6 +633,19 @@ module skip::entrypoint {
         assert!(source_channel == a, 1);
         assert!(receiver == b, 2);
         assert!(memo == c, 3);
+    }
+
+    #[test]
+    public fun pack_unpack_action_opbridge_args() {
+        let bridge_id = 1;
+        let to = string::utf8(b"init1rh03awuuy7t82n4pmtdaa6gj4duneaj8gghkqp");
+        let data = string::utf8(b"abc");
+
+        let packed_args = pack_action_opbridge_args(bridge_id, to, data);
+        let (a, b, c) = unpack_action_opbridge_args(packed_args);
+        assert!(bridge_id == a, 1);
+        assert!(to == b, 2);
+        assert!(data == c, 3);
     }
 
     #[test]
