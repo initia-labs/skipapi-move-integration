@@ -161,12 +161,9 @@ module skip::initia_dex {
 
         while(i < swap_length) {
             let pair = vector::borrow<Object<Config>>(&pools, i);
-            let coin_out_metadata = vector::borrow<Object<Metadata>>(&coins, i+1);
+            let coin_in_metadata = vector::borrow<Object<Metadata>>(&coins, i);
 
-            let price128 = dex::get_spot_price(*pair, *coin_out_metadata);
-            let price256 = decimal128::new(decimal128::val(&price128));
-
-            spot_price = decimal128::mul(&spot_price, &price256);
+            spot_price = decimal128::mul(&spot_price, &dex::get_spot_price(*pair, *coin_in_metadata));
             i = i + 1;
         };
         
@@ -271,6 +268,51 @@ module skip::initia_dex {
         let pair = object::convert<Metadata, Config>(lp_metadata);
 
         (vector[pair], vector[init_metadata, usdc_metadata])
+    }
+
+     #[test_only]
+    fun initialized_module_for_test2(
+        chain: &signer
+    ): (vector<String>, vector<String>) {
+        dex::init_module_for_test(chain);
+        primary_fungible_store::init_module_for_test(chain);
+
+        let chain_addr = signer::address_of(chain);
+
+        let (_, _, initia_mint_cap) = initialized_coin(chain, string::utf8(b"INIT"));
+        let (_, _, usdc_mint_cap) = initialized_coin(chain, string::utf8(b"USDC"));
+        let init_metadata = coin::metadata(chain_addr, string::utf8(b"INIT"));
+        let usdc_metadata = coin::metadata(chain_addr, string::utf8(b"USDC"));
+
+        coin::mint_to(&initia_mint_cap, chain_addr, 100000000);
+        coin::mint_to(&usdc_mint_cap, chain_addr, 100000000);
+
+        dex::create_pair_script(
+            chain,
+            std::string::utf8(b"name"),
+            std::string::utf8(b"SYMBOL"),
+            decimal128::from_ratio(3, 1000),
+            decimal128::from_ratio(5, 10),
+            decimal128::from_ratio(5, 10),
+            coin::metadata(chain_addr, string::utf8(b"INIT")),
+            coin::metadata(chain_addr, string::utf8(b"USDC")),
+            80000000,
+            20000000,
+        );
+
+        let lp_metadata = coin::metadata(chain_addr, string::utf8(b"SYMBOL"));
+
+        (vector[coin::metadata_to_denom(lp_metadata)], vector[coin::metadata_to_denom(usdc_metadata), coin::metadata_to_denom(init_metadata)])
+    }
+
+    #[test(chain = @0x1)]
+    fun test_spot_price(
+        chain:signer
+    ) {
+        let (pools, coins) = initialized_module_for_test2(&chain);
+
+        let spot_price = get_spot_price(pools, coins);
+        assert!(decimal128::is_same(&spot_price, &decimal128::from_ratio(4, 1)), 0);
     }
 
     #[test(chain = @0x1)]
