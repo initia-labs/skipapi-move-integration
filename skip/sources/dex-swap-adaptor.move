@@ -156,14 +156,10 @@ module skip::initia_dex {
         let i = 0;
         let spot_price = decimal128::one();
 
-        let pools = vector::map(pools, |pool| object::convert(coin::denom_to_metadata(pool)));
-        let coins = vector::map(coins, |coin| coin::denom_to_metadata(coin));
-
         while(i < swap_length) {
-            let pair = vector::borrow<Object<Config>>(&pools, i);
-            let coin_in_metadata = vector::borrow<Object<Metadata>>(&coins, i);
-
-            spot_price = decimal128::mul(&spot_price, &dex::get_spot_price(*pair, *coin_in_metadata));
+            let pair = vector::borrow(&pools, i);
+            let coin_in_metadata = vector::borrow(&coins, i);
+            spot_price = decimal128::mul(&spot_price, &dex::get_spot_price_by_denom(*pair, *coin_in_metadata));
             i = i + 1;
         };
         
@@ -314,10 +310,11 @@ module skip::initia_dex {
         let spot_price = get_spot_price(pools, coins);
         assert!(decimal128::is_same(&spot_price, &decimal128::from_ratio(4, 1)), 0);
 
-        let max_a = decimal128::from_ratio(10000, 1);
-        let result = decimal128::mul(&max_a, &decimal128::from_ratio(34028236692093, 1));
+        let price = decimal128::one();
+        let spot_price = decimal128::from_string(&string::utf8(b"6117.326889893584277078"));
+        let price = decimal128::mul(&price, &spot_price);
         assert!(
-            result == decimal128::from_ratio(340282366920930000, 1),
+            price == spot_price,
             0
         );
     }
