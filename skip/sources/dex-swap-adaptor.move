@@ -313,6 +313,13 @@ module skip::initia_dex {
 
         let spot_price = get_spot_price(pools, coins);
         assert!(decimal128::is_same(&spot_price, &decimal128::from_ratio(4, 1)), 0);
+
+        let max_a = decimal128::from_ratio(10000, 1);
+        let result = decimal128::mul(&max_a, &decimal128::from_ratio(34028236692093, 1));
+        assert!(
+            result == decimal128::from_ratio(340282366920930000, 1),
+            0
+        );
     }
 
     #[test(chain = @0x1)]
