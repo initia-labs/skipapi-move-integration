@@ -113,37 +113,37 @@ fun pack_action_opbridge_args(bridge_id: u64, to: String, data: String): vector<
 - IBC transfer to `init1g35jgwqehh3sm49c92fmzw3fdyj3qzzqhfl5va` on `birdee-1` chain as post action
 - Set `init1rh03awuuy7t82n4pmtdaa6gj4duneaj8gghkqp` as recover_address
 ```bash
-initiad tx move execute_json 0x777105889E6E42F2BED14DD4D7286C9E982A3E31 entry_point swap_and_action --args='[0] 0 "1000" "10" [["move/a2b0d3c8e53e379ede31f3a361ff02716d50ec53c6b65b8c48a81d5b06548200","move/dbf06c48af3984ec6d9ae8a9aa7dbb0bb1e784aa9b8c4a5681af660cf8558d7d"]] [["ueth","uinit","uusdc"]] 1 "1821364848632000000" "init1rh03awuuy7t82n4pmtdaa6gj4duneaj8gghkqp" ["0a6368616e6e656c2d3235","2b696e6974316733356a67777165686833736d3439633932666d7a77336664796a33717a7a7168666c357661","00"]'
+initiad tx move execute-json 0x777105889E6E42F2BED14DD4D7286C9E982A3E31 entry_point swap_and_action --args='[[0],0,"1000", "10", [["move/a2b0d3c8e53e379ede31f3a361ff02716d50ec53c6b65b8c48a81d5b06548200","move/dbf06c48af3984ec6d9ae8a9aa7dbb0bb1e784aa9b8c4a5681af660cf8558d7d"]], [["ueth","uinit","uusdc"]], 1, "1821364848632000000", "init1rh03awuuy7t82n4pmtdaa6gj4duneaj8gghkqp", ["0a6368616e6e656c2d3235","2b696e6974316733356a67777165686833736d3439633932666d7a77336664796a33717a7a7168666c357661","00"]]'
 ```
 
 - Swap_exact_asset_out `ueth`, `uinit`, `uusdc` in order from `initia_dex`
 - OP bridge transfer to `init1g35jgwqehh3sm49c92fmzw3fdyj3qzzqhfl5va` on `minimove-1` chain as post action
 - Set `init1rh03awuuy7t82n4pmtdaa6gj4duneaj8gghkqp` as recover_address
 ```bash
-initiad tx move execute_json 0x777105889E6E42F2BED14DD4D7286C9E982A3E31 entry_point swap_and_action --args='[0] 1 "10000" "6200000" [["move/a2b0d3c8e53e379ede31f3a361ff02716d50ec53c6b65b8c48a81d5b06548200","move/dbf06c48af3984ec6d9ae8a9aa7dbb0bb1e784aa9b8c4a5681af660cf8558d7d"]] [["ueth","uinit","uusdc"]] 3 "1821364848632000000" "init1rh03awuuy7t82n4pmtdaa6gj4duneaj8gghkqp" ["0a6368616e6e656c2d3235","2b696e6974316733356a67777165686833736d3439633932666d7a77336664796a33717a7a7168666c357661","00"]'
+initiad tx move execute-json 0x777105889E6E42F2BED14DD4D7286C9E982A3E31 entry_point swap_and_action --args='[[0], 1, "10000", "6200000", [["move/a2b0d3c8e53e379ede31f3a361ff02716d50ec53c6b65b8c48a81d5b06548200","move/dbf06c48af3984ec6d9ae8a9aa7dbb0bb1e784aa9b8c4a5681af660cf8558d7d"]], [["ueth","uinit","uusdc"]], 3, "1821364848632000000", "init1rh03awuuy7t82n4pmtdaa6gj4duneaj8gghkqp", ["0a6368616e6e656c2d3235","2b696e6974316733356a67777165686833736d3439633932666d7a77336664796a33717a7a7168666c357661","00"]]'
 ```
 
 - Query `spot_price` `ueth`, `uinit`, `uusdc` in order from `initia_dex`
 ```bash
-initiad q move view_json 0x777105889E6E42F2BED14DD4D7286C9E982A3E31 entry_point get_spot_price --args='[0] [["move/a2b0d3c8e53e379ede31f3a361ff02716d50ec53c6b65b8c48a81d5b06548200","move/dbf06c48af3984ec6d9ae8a9aa7dbb0bb1e784aa9b8c4a5681af660cf8558d7d"]] [["ueth","uinit","uusdc"]]'
+initiad q move view-json 0x777105889E6E42F2BED14DD4D7286C9E982A3E31 entry_point get_spot_price --args='[[0], [["move/a2b0d3c8e53e379ede31f3a361ff02716d50ec53c6b65b8c48a81d5b06548200","move/dbf06c48af3984ec6d9ae8a9aa7dbb0bb1e784aa9b8c4a5681af660cf8558d7d"]], [["ueth","uinit","uusdc"]]]'
 ```
 
 - Query `simulate_swap_exact_asset_in` `uusdc`, `uinit` in order from `initia_dex`
 ```bash
-initiad q move view_json 0x777105889E6E42F2BED14DD4D7286C9E982A3E31 entry_point simulate_swap_exact_asset_in --args='"10000" [0] [["move/dbf06c48af3984ec6d9ae8a9aa7dbb0bb1e784aa9b8c4a5681af660cf8558d7d"]] [["uusdc","uinit"]]'
+initiad q move view-json 0x777105889E6E42F2BED14DD4D7286C9E982A3E31 entry_point simulate_swap_exact_asset_in --args='["10000", [0], [["move/dbf06c48af3984ec6d9ae8a9aa7dbb0bb1e784aa9b8c4a5681af660cf8558d7d"]], [["uusdc","uinit"]]]'
 ```
 
 - Query `simulate_swap_exact_asset_out` `uusdc`, `uinit` in order from `initia_dex`
 ```bash
-initiad q move view_json 0x777105889E6E42F2BED14DD4D7286C9E982A3E31 entry_point simulate_swap_exact_asset_out --args='"10000" [0] [["move/dbf06c48af3984ec6d9ae8a9aa7dbb0bb1e784aa9b8c4a5681af660cf8558d7d"]] [["uusdc","uinit"]]'
+initiad q move view-json 0x777105889E6E42F2BED14DD4D7286C9E982A3E31 entry_point simulate_swap_exact_asset_out --args='["10000", [0], [["move/dbf06c48af3984ec6d9ae8a9aa7dbb0bb1e784aa9b8c4a5681af660cf8558d7d"]], [["uusdc","uinit"]]]'
 ```
 
 - Query `simulate_swap_exact_asset_in_metadata` `ueth`, `uinit`, `uusdc` in order from `initia_dex`
 ```bash 
-initiad q move view_json 0x777105889E6E42F2BED14DD4D7286C9E982A3E31 entry_point simulate_swap_exact_asset_in_with_metadata --args='"1000" [0] [["move/a2b0d3c8e53e379ede31f3a361ff02716d50ec53c6b65b8c48a81d5b06548200","move/dbf06c48af3984ec6d9ae8a9aa7dbb0bb1e784aa9b8c4a5681af660cf8558d7d"]] [["ueth","uinit","uusdc"]] true'
+initiad q move view-json 0x777105889E6E42F2BED14DD4D7286C9E982A3E31 entry_point simulate_swap_exact_asset_in_with_metadata --args='["1000", [0], [["move/a2b0d3c8e53e379ede31f3a361ff02716d50ec53c6b65b8c48a81d5b06548200","move/dbf06c48af3984ec6d9ae8a9aa7dbb0bb1e784aa9b8c4a5681af660cf8558d7d"]], [["ueth","uinit","uusdc"]], true]'
 ```
 
 - Query `simulate_swap_exact_asset_out_metadata` `ueth`, `uinit`, `uusdc` in order from `initia_dex`
 ```bash 
-initiad q move view_json 0x777105889E6E42F2BED14DD4D7286C9E982A3E31 entry_point simulate_swap_exact_asset_out_with_metadata --args='"1000" [0] [["move/a2b0d3c8e53e379ede31f3a361ff02716d50ec53c6b65b8c48a81d5b06548200","move/dbf06c48af3984ec6d9ae8a9aa7dbb0bb1e784aa9b8c4a5681af660cf8558d7d"]] [["ueth","uinit","uusdc"]] false'
+initiad q move view-json 0x777105889E6E42F2BED14DD4D7286C9E982A3E31 entry_point simulate_swap_exact_asset_out_with_metadata --args='["1000", [0], [["move/a2b0d3c8e53e379ede31f3a361ff02716d50ec53c6b65b8c48a81d5b06548200","move/dbf06c48af3984ec6d9ae8a9aa7dbb0bb1e784aa9b8c4a5681af660cf8558d7d"]], [["ueth","uinit","uusdc"]], false]'
 ```
