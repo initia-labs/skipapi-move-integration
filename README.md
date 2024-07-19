@@ -1,187 +1,149 @@
-PoC Skip move contracts
+Skip move contracts
 =============
 
-This repository has PoC of contracts to connect with Skip API. Basic code structure is similar with [Skip CosmWasm contracts](https://github.com/skip-mev/skip-api-contracts).
 The contracts are available to
 
 1. swap_and_action in one transaction.
-2. interacting with Initia standard dex module. It can swap using swap_exact_asset_in and swap_exact_asset_out.
+2. interacting with Initia dex, stableswap, minitswap modules. It can swap using swap_exact_asset_in and swap_exact_asset_out.
 3. querying swap simulations and spot price.
-4. three actions after swapping assets: transfer, IBC transfer, contract call.
-5. executing `swap_exact_action` from IBC transfer message of another chain.
+4. four actions after swapping assets: transfer, IBC transfer, contract call, OP bridge.
 
 Entry point contract
 -------------
-
-Dynamic dispatch is not allowed in move contract, so we utilize cosmos message interface to execute other move contract with module address and name like SubMsg of CosmWasm (you can get idea how it works in the following codes, <https://github.com/initia-labs/initia/blob/main/x/move/keeper/handler.go#L271>).
-
-This contract acts like as follows.
-
-### Initiate module
-
-When deploying the module, it saves a default swap-adaptor address which connects with Initia standard library dex module, <https://github.com/initia-labs/initiavm/blob/main/precompile/modules/initia_stdlib/sources/dex.move>. You can append other adaptors dynamically after.
-
-### Swap and action
-
-It makes a swap message first which interacts with a swap-adaptor module. To interact with another module, you should specify `module_address`, `module_name`, `function_name`, `args` correctly. You can make swap message arguments easily in `create_swapmsg_args` function.
-
+## Swap and action
+You can enter data according to the arguments of the function `swap_and_action` below
 ```move
-fun create_swapmsg_args(
- user_swap_amount: u64,
- pools: vector<Object<Metadata>>,
- coins: vector<Object<Metadata>>,
- min_amount: u64,
-): vector<vector<u8>> {
- let msg_args = vector<vector<u8>>[];
- let amount_arg = bcs::to_bytes(&user_swap_amount);
- let pools_arg = bcs::to_bytes(&pools);
- let coins_arg = bcs::to_bytes(&coins);
- let min_amount_arg = bcs::to_bytes(&min_amount);
+public entry fun swap_and_action(
+    account: &signer,
+    venues: vector<u8>,
+    function: u8,
+    // this is used as max_offer_amount in swap_exact_asset_out
+    amount_in: u64, 
+    // this is used as min_amount in swap_exact_asset_in
+    amount_out: u64, 
+    pools: vector<vector<String>>,
+    coins: vector<vector<String>>,
 
- vector::push_back(&mut msg_args, amount_arg);
- vector::push_back(&mut msg_args, pools_arg);
- vector::push_back(&mut msg_args, coins_arg);
- vector::push_back(&mut msg_args, min_amount_arg);
-
- msg_args
-}
+    post_action: u8,
+    timeout_timestamp: u64,
+    recover_address: String,
+    post_action_args: vector<vector<u8>>,
+)
+```
+Possible values for venue are:
+```move
+const INITIA_DEX: u8 = 0;
+const INITIA_STABLESWAP: u8 = 1;
+const INITIA_MINITSWAP: u8 = 2;
+```
+for function: 
+```move
+const SWAP_FUNCTION_SWAP_EXACT_ASSET_IN: u8 = 0;
+const SWAP_FUNCTION_SWAP_EXACT_ASSET_OUT: u8 = 1;
 ```
 
-After making a swap message, it makes `post_action` message from `create_postaction_args`.
-
+for post_action:
 ```move
-fun create_postaction_args(
- coin: Object<Metadata>,
- pre_swap_balance: u64,
- timeout_timestamp: u64,
- post_swap_action: u8,
- action_args: vector<vector<u8>>,
-): vector<vector<u8>> {
- let msg_args = vector<vector<u8>>[];
- let coin_arg = bcs::to_bytes(&coin);
- let amount_arg = bcs::to_bytes(&amount);
- let timeout_timestamp_arg = bcs::to_bytes(&timeout_timestamp);
- let post_swap_action_arg = bcs::to_bytes(&post_swap_action);
- let action_arg = bcs::to_bytes(&action_args);
-
- vector::push_back(&mut msg_args, coin_arg);
- vector::push_back(&mut msg_args, amount_arg);
- vector::push_back(&mut msg_args, timeout_timestamp_arg);
- vector::push_back(&mut msg_args, post_swap_action_arg);
- vector::push_back(&mut msg_args, action_arg);
-
- msg_args
-}
+const POST_ACTION_TRANSFER: u8 = 0;
+const POST_ACTION_IBCTRANSFER: u8 = 1;
+const POST_ACTION_CONTRACT: u8 = 2;
+const POST_ACTION_OPBRIDGE: u8 = 3;
 ```
 
-This `post_action` message calls `post_action` function. This function unpacks `action_arg` according to each action to make each message. `action_arg` is Base64-encoded after BCS-encoded. To pack `action_arg`, you can refer helper functions `pack_action_transfer_args`, `pack_action_ibctransfer_args` and `pack_action_contract_args`.
+### Swap
 
-Swap adaptor contract
--------------
+#### swap_exact_asset_in
+When swapping with swap_exact_amount_in, `amount_in` acts as `swap_amount` and `amount_out` acts as `min_amount`.
 
-`initiadex` module is a swap adaptor which connects with Initia standard library DEX module(initia_std::dex) which is based on [Balancer](https://balancer.fi/whitepaper.pdf). This contract provides two swap functions: `swap_exact_asset_in`, `swap_exact_asset_out`. You are also able to query simulation results through `simulate_swap_exact_asset_in`, `simulate_swap_exact_asset_out` and `spot_price` with `get_spot_price`. Note that a `signer` of the functions should be an owner of provided coin. You can check how provided coin works on swap function in Initia DEX module.
+#### swap_exact_asset_out
+When swapping with swap_exact_amount_out, `amount_in` acts as `max_offer_amount` and `amount_out` acts as `swap_amount`.
 
-```move
-public entry fun swap_script(
- account: &signer,
- pair: Object<Config>,
- offer_coin: Object<Metadata>,
- offer_coin_amount: u64,
- min_return: Option<u64>,
-) acquires Config, Pool {
- let offer_coin = coin::withdraw(account, offer_coin, offer_coin_amount);
- let return_coin = swap(pair, offer_coin);
-
- assert!(
-  option::is_none(&min_return) || *option::borrow(&min_return) <= fungible_asset::amount(&return_coin),
-  error::invalid_state(EMIN_RETURN),
- );
-
- coin::deposit(signer::address_of(account), return_coin);
-}
-```
-
-In these contracts, all coins are always owned by a message sender before transfering to another account.
-
-How to make IBC message
--------------
-
-When you call the entry point contract with IBC transfer from another chain, you should provide memo exactly following [Initia IBC-hooks](https://github.com/initia-labs/initia/tree/main/x/move/ibc-middleware). To provide `swap_and_action` args as base64 encoded bytes array, you can refer the helper function, `pack_swap_and_action_args`.
-
-```move
-fun pack_swap_and_action_args(
- swap_venue_name: String,
- swap_function_name: String,
- user_swap_coin: address,
- user_swap_amount: u64,
- pools: vector<address>,
- coins: vector<address>,
- min_swap_coin: address,
- min_swap_amount: u64,
- timeout_timestamp: u64,
- post_swap_action: u8,
- action_args: vector<vector<u8>>
-): vector<String> {
- let args = vector<String>[];
- vector::push_back(&mut args, base64::to_string(bcs::to_bytes(&swap_venue_name)));
- vector::push_back(&mut args, base64::to_string(bcs::to_bytes(&swap_function_name)));
- vector::push_back(&mut args, base64::to_string(bcs::to_bytes(&user_swap_coin)));
- vector::push_back(&mut args, base64::to_string(bcs::to_bytes(&user_swap_amount)));
- vector::push_back(&mut args, base64::to_string(bcs::to_bytes(&pools)));
- vector::push_back(&mut args, base64::to_string(bcs::to_bytes(&coins)));
- vector::push_back(&mut args, base64::to_string(bcs::to_bytes(&min_swap_coin)));
- vector::push_back(&mut args, base64::to_string(bcs::to_bytes(&min_swap_amount)));
- vector::push_back(&mut args, base64::to_string(bcs::to_bytes(&timeout_timestamp)));
- vector::push_back(&mut args, base64::to_string(bcs::to_bytes(&post_swap_action)));
- vector::push_back(&mut args, base64::to_string(bcs::to_bytes(&action_args)));
- 
- args
-}
-```
-
-Ack callback
--------------
-
-Before you send a IBC transfer message, you should store a specific callback id into your ack-callback contract. Initia ack hook calls functions `ibc_ack` or `ibc_timeout` with the callback id. You can refer `@skip::ackcallback` module which simply sends token to `@skip` address when receiving an ack.
-
-Example instructions
--------------
-
-Swap and action
+### Post action
+For post action arguments, you can query one of view functions to encode as bcs.
 
 ```bash
-POST_SWAP_ACTION = 
- 0: POST_ACTION_TRANSFER
- 1: POST_ACTION_IBCTRANSFER
- 2: POST_ACTION_CONTRACT
- 3: POST_ACTION_OPBRIDGE
+$ initiad q move view_json 0x777105889E6E42F2BED14DD4D7286C9E982A3E31 entry_point pack_action_opbridge_args --args='"1" "init1g35jgwqehh3sm49c92fmzw3fdyj3qzzqhfl5va" ""' --node=https://rpc.initiation-1.initia.xyz
 
-RAW_HEX_BYTES_ARGS = pack_action_{action}_args(...)
-ibc transfer ex) 43574e6f595735755a5777744d413d3d,4b6a42344d555245526a4646516b4935517a49334f5459334e5452465154464551555243524556464f544579515549334f544e44526a59304e773d3d,41414141414141414141413d,32424941414141414141413d,41413d3d
-
-$ initiad tx move execute ${SKIP_MODULE_ADDRESS} entrypoint swap_and_action --args "string:initiadex string:swap_exact_asset_in address:${USER_SWAP_COIN_METADATA} u64:${USER_SWAP_COIN_AMOUNT} vector<address>:${PAIR_METADATA} vector<address>:${COIN_1_METADATA},${COIN_2_METADATA} address:${MIN_SWAP_COIN_METADATA} u64:${MIN_SWAP_COIN_AMOUNT} u64:${TIMEOUT_TIMESTAMP} u8:${POST_SWAP_ACTION} vector<raw_hex>:${RAW_HEX_BYTES_ARGS}" --from=node0 --gas=auto --gas-adjustment 1.5 --gas-prices 0.15uinit --chain-id=localnet
+data: '["0100000000000000","2b696e6974316733356a67777165686833736d3439633932666d7a77336664796a33717a7a7168666c357661","00"]'
+events: []
+gas_used: "315"
 ```
 
-Query
+```move
+#[view]
+fun pack_action_transfer_args(to_address: String): vector<vector<u8>>{
+    let action_args = vector<vector<u8>>[];
+    vector::push_back(&mut action_args, bcs::to_bytes(&to_address));
+    action_args
+}
 
+// @dev: receiver is cosmos address
+#[view]
+fun pack_action_ibctransfer_args(source_channel: String, receiver: String, memo: String): vector<vector<u8>> {
+    let action_args = vector<vector<u8>>[];
+    vector::push_back(&mut action_args, bcs::to_bytes(&source_channel));
+    vector::push_back(&mut action_args, bcs::to_bytes(&receiver));
+    vector::push_back(&mut action_args, bcs::to_bytes(&memo));
+    action_args
+}
+
+#[view]
+fun pack_action_contract_args(module_address: address, module_name: String, function_name: String, type_args: vector<String>, args: vector<vector<u8>>): vector<vector<u8>> {
+    let action_args = vector<vector<u8>>[];
+    vector::push_back(&mut action_args, bcs::to_bytes(&module_address));
+    vector::push_back(&mut action_args, bcs::to_bytes(&module_name));
+    vector::push_back(&mut action_args, bcs::to_bytes(&function_name));
+    vector::push_back(&mut action_args, bcs::to_bytes(&type_args));
+    vector::push_back(&mut action_args, bcs::to_bytes(&args));
+    action_args
+}
+
+#[view]
+fun pack_action_opbridge_args(bridge_id: u64, to: String, data: String): vector<vector<u8>> {
+    let action_args = vector<vector<u8>>[];
+    vector::push_back(&mut action_args, bcs::to_bytes(&bridge_id));
+    vector::push_back(&mut action_args, bcs::to_bytes(&to));
+    vector::push_back(&mut action_args, bcs::to_bytes(&data));
+    action_args
+}
+```
+
+## Examples
+- Swap_exact_asset_in `ueth`, `uinit`, `uusdc` in order from `initia_dex`
+- IBC transfer to `init1g35jgwqehh3sm49c92fmzw3fdyj3qzzqhfl5va` on `birdee-1` chain as post action
+- Set `init1rh03awuuy7t82n4pmtdaa6gj4duneaj8gghkqp` as recover_address
 ```bash
-initiad query move view ${SKIP_MODULE_ADDRESS} initiadex simulate_swap_exact_asset_in --args "u64:${SWAP_AMOUNT} vector<address>:${PAIR_METADATA} vector<address>:${COIN_1_METADATA},${COIN_2_METADATA}"
+initiad tx move execute_json 0x777105889E6E42F2BED14DD4D7286C9E982A3E31 entry_point swap_and_action --args='[0] 0 "1000" "10" [["move/a2b0d3c8e53e379ede31f3a361ff02716d50ec53c6b65b8c48a81d5b06548200","move/dbf06c48af3984ec6d9ae8a9aa7dbb0bb1e784aa9b8c4a5681af660cf8558d7d"]] [["ueth","uinit","uusdc"]] 1 "1821364848632000000" "init1rh03awuuy7t82n4pmtdaa6gj4duneaj8gghkqp" ["0a6368616e6e656c2d3235","2b696e6974316733356a67777165686833736d3439633932666d7a77336664796a33717a7a7168666c357661","00"]'
 ```
 
-IBC transfer with hermes
-
+- Swap_exact_asset_out `ueth`, `uinit`, `uusdc` in order from `initia_dex`
+- OP bridge transfer to `init1g35jgwqehh3sm49c92fmzw3fdyj3qzzqhfl5va` on `minimove-1` chain as post action
+- Set `init1rh03awuuy7t82n4pmtdaa6gj4duneaj8gghkqp` as recover_address
 ```bash
-BASE64_ENCODED_BYTES_ARRAY = pack_swap_and_action_args(...)
-ex) \"CWluaXRpYWRleA==\",\"E3N3YXBfZXhhY3RfYXNzZXRfaW4=\",\"h5IaK1CkAxVs+K+tdo/W394muRPi7kYLEBXl9+8XVdA=\",\"ECcAAAAAAAA=\",\"ASqe+Vd8X7NtKZHZ+6nLZe2Ls/SbFxkCGtMtzxwYZxTd\",\"AoeSGitQpAMVbPivrXaP1t/eJrkT4u5GCxAV5ffvF1XQjkczvavPfUr8PRTw3UbJv1L7D86eS5lsk54ZW4vIkdk=\",\"jkczvavPfUr8PRTw3UbJv1L7D86eS5lsk54ZW4vIkdk=\",\"ZAAAAAAAAAA=\",\"wNHzDUbCsBc=\",\"AA==\",\"ASxBQUFBQUFBQUFBQUFBQUFBMjVMbVMxeFJxTzNLRXdOTlFTZ0dJZ3NBWStFPQ==\"
-
-$ hermes tx ft-transfer --denom=uinit --memo="{\"move\":{\"module_address\":\"${SKIP_MODULE_ADDRESS}\",\"module_name\":\"entrypoint\",\"function_name\":\"swap_and_action\",\"type_args\":[],\"args\":[${BASE64_ENCODED_BYTES_ARRAY}]}}" --amount=10000 --dst-chain=localnet --src-chain=localnet1 --src-channel=channel-0 --src-port=transfer --timeout-height-offset=100 --timeout-seconds=600 --receiver="${SKIP_MODULE_ADDRESS}::entrypoint::swap_and_action"
+initiad tx move execute_json 0x777105889E6E42F2BED14DD4D7286C9E982A3E31 entry_point swap_and_action --args='[0] 1 "10000" "6200000" [["move/a2b0d3c8e53e379ede31f3a361ff02716d50ec53c6b65b8c48a81d5b06548200","move/dbf06c48af3984ec6d9ae8a9aa7dbb0bb1e784aa9b8c4a5681af660cf8558d7d"]] [["ueth","uinit","uusdc"]] 3 "1821364848632000000" "init1rh03awuuy7t82n4pmtdaa6gj4duneaj8gghkqp" ["0a6368616e6e656c2d3235","2b696e6974316733356a67777165686833736d3439633932666d7a77336664796a33717a7a7168666c357661","00"]'
 ```
 
-References
--------------
+- Query `spot_price` `ueth`, `uinit`, `uusdc` in order from `initia_dex`
+```bash
+initiad q move view_json 0x777105889E6E42F2BED14DD4D7286C9E982A3E31 entry_point get_spot_price --args='[0] [["move/a2b0d3c8e53e379ede31f3a361ff02716d50ec53c6b65b8c48a81d5b06548200","move/dbf06c48af3984ec6d9ae8a9aa7dbb0bb1e784aa9b8c4a5681af660cf8558d7d"]] [["ueth","uinit","uusdc"]]'
+```
 
-* Move book: <https://aptos.dev/move/book/summary/>
-* Object model: <https://aptos.dev/standards/aptos-object/>
-* Initia standard library: <https://github.com/initia-labs/initiavm/blob/main/precompile/modules/initia_stdlib/>
-* Build and publish contracts instructions: <https://app.gitbook.com/o/VC1Rsak51RJaeaQhM2YE/s/pUvrGia2zAh06hjawOb6/initia-developer-tutorials/6.-build-and-publish-contracts/move-module>
-* Interacting with Initia CLI: <https://app.gitbook.com/o/VC1Rsak51RJaeaQhM2YE/s/pUvrGia2zAh06hjawOb6/developers/virtual-machines/movevm/interact-with-cli>
+- Query `simulate_swap_exact_asset_in` `uusdc`, `uinit` in order from `initia_dex`
+```bash
+initiad q move view_json 0x777105889E6E42F2BED14DD4D7286C9E982A3E31 entry_point simulate_swap_exact_asset_in --args='"10000" [0] [["move/dbf06c48af3984ec6d9ae8a9aa7dbb0bb1e784aa9b8c4a5681af660cf8558d7d"]] [["uusdc","uinit"]]'
+```
+
+- Query `simulate_swap_exact_asset_out` `uusdc`, `uinit` in order from `initia_dex`
+```bash
+initiad q move view_json 0x777105889E6E42F2BED14DD4D7286C9E982A3E31 entry_point simulate_swap_exact_asset_out --args='"10000" [0] [["move/dbf06c48af3984ec6d9ae8a9aa7dbb0bb1e784aa9b8c4a5681af660cf8558d7d"]] [["uusdc","uinit"]]'
+```
+
+- Query `simulate_swap_exact_asset_in_metadata` `ueth`, `uinit`, `uusdc` in order from `initia_dex`
+```bash 
+initiad q move view_json 0x777105889E6E42F2BED14DD4D7286C9E982A3E31 entry_point simulate_swap_exact_asset_in_with_metadata --args='"1000" [0] [["move/a2b0d3c8e53e379ede31f3a361ff02716d50ec53c6b65b8c48a81d5b06548200","move/dbf06c48af3984ec6d9ae8a9aa7dbb0bb1e784aa9b8c4a5681af660cf8558d7d"]] [["ueth","uinit","uusdc"]] true'
+```
+
+- Query `simulate_swap_exact_asset_out_metadata` `ueth`, `uinit`, `uusdc` in order from `initia_dex`
+```bash 
+initiad q move view_json 0x777105889E6E42F2BED14DD4D7286C9E982A3E31 entry_point simulate_swap_exact_asset_out_with_metadata --args='"1000" [0] [["move/a2b0d3c8e53e379ede31f3a361ff02716d50ec53c6b65b8c48a81d5b06548200","move/dbf06c48af3984ec6d9ae8a9aa7dbb0bb1e784aa9b8c4a5681af660cf8558d7d"]] [["ueth","uinit","uusdc"]] false'
+```
