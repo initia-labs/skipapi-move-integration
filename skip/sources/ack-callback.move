@@ -81,8 +81,8 @@ module skip::ack_callback2 {
         is_success: bool,
     ) acquires AckStore {
         let account_address = signer::address_of(account);
-        let module_store = borrow_global_mut<AckStore>(account_address);
-        let (_, recover_info) = simple_map::remove(&mut module_store.acks, &callback_id);
+        let ack_store = borrow_global_mut<AckStore>(account_address);
+        let (_, recover_info) = simple_map::remove(&mut ack_store.acks, &callback_id);
 
         if(!is_success) {
             coin::transfer(account, recover_info.recover_address, recover_info.coin_metadata, recover_info.coin_amount);
@@ -103,8 +103,8 @@ module skip::ack_callback2 {
         callback_id: u64,
     ) acquires AckStore {
         let account_address = signer::address_of(account);
-        let module_store = borrow_global_mut<AckStore>(account_address);
-        let (_, recover_info) = simple_map::remove(&mut module_store.acks, &callback_id);
+        let ack_store = borrow_global_mut<AckStore>(account_address);
+        let (_, recover_info) = simple_map::remove(&mut ack_store.acks, &callback_id);
 
         coin::transfer(account, recover_info.recover_address, recover_info.coin_metadata, recover_info.coin_amount);
         event::emit<TimeoutCallback>(
