@@ -10,4 +10,4 @@ std = "0x1"
 
 
 [dependencies]
-InitiaStdlib = { git = "https://github.com/initia-labs/movevm.git", subdir = "crates/../precompile/modules/initia_stdlib", rev = "d9bf554415e71694224cc0364b3ea48697164a27" }
+InitiaStdlib = { git = "https://github.com/initia-labs/movevm.git", subdir = "crates/../precompile/modules/initia_stdlib", rev = "d4b03a11d83b030b436b0858e9263d50c23a2666" }

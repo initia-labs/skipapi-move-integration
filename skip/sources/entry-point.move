@@ -11,26 +11,45 @@ module skip::entry_point {
     use initia_std::coin;
     use initia_std::from_bcs;
     use initia_std::base64;
-    use initia_std::json;
-    use initia_std::simple_json;
+    use initia_std::json::{Self, JSONValue, JSONObject};
     use initia_std::option::{Self, Option};
     use initia_std::address;
     use initia_std::string_utils;
-    use initia_std::decimal128::{Self, Decimal128};
+    use initia_std::bigdecimal::{Self, BigDecimal};
 
-    use skip::ack_callback2;
+    use skip::ack_callback;
     use skip::initia_dex;
     use skip::initia_stableswap;
     use skip::initia_minitswap;
 
     struct SimulateSwapExactAssetInResponse has drop {
         amount_out: u64,
-        spot_price: Option<Decimal128>,
+        spot_price: Option<BigDecimal>,
     }
 
     struct SimulateSwapExactAssetOutResponse has drop {
         amount_in: u64,
-        spot_price: Option<Decimal128>,
+        spot_price: Option<BigDecimal>,
+    }
+
+    struct InitiateTokenDepositObject has copy, drop {
+        _type_: String,
+        sender: String,
+        bridge_id: String,
+        to: String,
+        data: String,
+        amount: Option<AmountObject>,
+    }
+
+    struct AmountObject has copy, drop {
+        denom: String,
+        amount: String,
+    }
+
+    struct AsyncCallbackObject has copy, drop {
+        id: JSONValue,
+        module_address: String,
+        module_name: String,
     }
 
     const INITIA_DEX: u8 = 0;
@@ -245,7 +264,7 @@ module skip::entry_point {
             coin::transfer(account, to_address, coin_out, amount_out);
         } else if(post_action == POST_ACTION_IBCTRANSFER) {
             let recover_address = address::from_sdk(recover_address);
-            let callback_id = ack_callback2::store_recover_address(account, recover_address, amount_out, coin_out);
+            let callback_id = ack_callback::store_recover_address(account, recover_address, amount_out, coin_out);
             let (
                 source_channel,
                 receiver, 
@@ -301,20 +320,19 @@ module skip::entry_point {
         amount: u64,
         data: String
     ) {
-        let obj = simple_json::empty();
-        simple_json::set_object(&mut obj, option::none<String>());
-        simple_json::increase_depth(&mut obj);
-        simple_json::set_string(&mut obj, option::some(string::utf8(b"@type")), string::utf8(b"/opinit.ophost.v1.MsgInitiateTokenDeposit"));
-        simple_json::set_string(&mut obj, option::some(string::utf8(b"sender")), address::to_sdk(signer::address_of(sender)));
-        simple_json::set_string(&mut obj, option::some(string::utf8(b"bridge_id")), string_utils::to_string(&bridge_id));
-        simple_json::set_string(&mut obj, option::some(string::utf8(b"to")), to);
-        simple_json::set_string(&mut obj, option::some(string::utf8(b"data")), base64::to_string(*string::bytes(&data)));
-        simple_json::set_object(&mut obj, option::some(string::utf8(b"amount")));
-        simple_json::increase_depth(&mut obj);
-        simple_json::set_string(&mut obj, option::some(string::utf8(b"denom")), coin::metadata_to_denom(metadata));
-        simple_json::set_string(&mut obj, option::some(string::utf8(b"amount")), string_utils::to_string(&amount));
-
-        let req = json::stringify(simple_json::to_json_object(&obj));
+        let req = json::marshal(
+            &InitiateTokenDepositObject{
+                _type_: string::utf8(b"/opinit.ophost.v1.MsgInitiateTokenDeposit"),
+                sender: address::to_string(signer::address_of(sender)),
+                bridge_id: string_utils::to_string(&bridge_id),
+                to: to,
+                data: base64::to_string(*string::bytes(&data)),
+                amount: option::some(AmountObject{
+                    denom: coin::metadata_to_denom(metadata),
+                    amount: string_utils::to_string(&amount),
+                }),
+            }
+        );
         cosmos::stargate(sender, req);
     }
 
@@ -323,41 +341,28 @@ module skip::entry_point {
             memo = string::utf8(b"{}");
         };
 
-        let obj = simple_json::from_json_object(json::parse(memo));
-        simple_json::increase_depth(&mut obj);
-        
-        let move_str = string::utf8(b"move");
-        let ok = simple_json::try_find_and_set_index(&mut obj, &move_str);
-        if(!ok) {
-            simple_json::set_to_last_index(&mut obj);
-            simple_json::set_object(&mut obj, option::some(move_str));
+        let id = json::unmarshal<JSONValue>(*string::bytes(&string_utils::to_string(&callback_id)));
+
+        let cb_obj = AsyncCallbackObject {
+            id: id,
+            module_address: address::to_string(module_address),
+            module_name: string::utf8(b"ack_callback"),
         };
-        simple_json::increase_depth(&mut obj);
-        /*
-            "async_callback": {
-                "id": ,
-                "module_address": "",
-                "module_name": ""
-            }
-        */
-        simple_json::set_object(&mut obj, option::some(string::utf8(b"async_callback")));
-        simple_json::increase_depth(&mut obj);
-        simple_json::set_int_raw(
-            &mut obj, 
-            option::some(string::utf8(b"id")), 
-            true, (callback_id as u256),
-        );
-        simple_json::set_string(
-            &mut obj, 
-            option::some(string::utf8(b"module_address")), 
-            address::to_string(module_address),
-        );
-        simple_json::set_string(
-            &mut obj, 
-            option::some(string::utf8(b"module_name")), 
-            string::utf8(b"ack_callback2"),
-        );
-        json::stringify(simple_json::to_json_object(&obj))
+
+        let obj = json::unmarshal<JSONObject>(*string::bytes(&memo));
+        let move_obj = json::get_elem<JSONObject>(&obj, string::utf8(b"move"));
+
+        let move_obj = if(option::is_none(&move_obj)){
+            // make empty move object
+            json::unmarshal<JSONObject>(b"{}")
+        } else {
+            option::extract(&mut move_obj)
+        };
+
+        json::set_elem(&mut move_obj, string::utf8(b"async_callback"), &cb_obj);
+        json::set_elem(&mut obj, string::utf8(b"move"), &move_obj);
+
+        string::utf8(json::marshal(&obj))
     }
     
     fun unpack_action_transfer_args(action_args: vector<vector<u8>>): address {
@@ -577,19 +582,19 @@ module skip::entry_point {
         swap_venues: vector<u8>,
         pools: vector<vector<String>>,
         coins: vector<vector<String>>,
-    ): Decimal128 {
+    ): BigDecimal {
         let venue_length = vector::length(&swap_venues);
         assert!(venue_length > 0, error::invalid_argument(EINVALID_VENUE_LENGTH));
         assert!(vector::length(&pools) == venue_length, error::invalid_argument(EINVALID_POOLS_LENGTH));
         assert!(vector::length(&coins) == venue_length, error::invalid_argument(EINVALID_COINS_LENGTH));
         let i = 0;
         let coin_in: String = *vector::borrow(vector::borrow(&coins, 0), 0);
-        let spot_price = decimal128::one();
+        let spot_price = bigdecimal::one();
         while(i < venue_length) {
             let venue = *vector::borrow(&swap_venues, i);
             let pools_i = *vector::borrow(&pools, i);
             let coins_i = *vector::borrow(&coins, i);
-            let price: Decimal128;
+            let price: BigDecimal;
 
             assert!(coin_in == *vector::borrow(&coins_i, 0), EINVALID_ASSET);
             if(venue == INITIA_DEX) {
@@ -601,7 +606,7 @@ module skip::entry_point {
             }else {
                 abort error::invalid_argument(EINVALID_SWAP_VENUE)
             };
-            spot_price = decimal128::mul(&spot_price, &price);
+            spot_price = bigdecimal::mul(spot_price, price);
             coin_in = *vector::borrow(&coins_i, vector::length(&coins_i) - 1);
             i = i + 1;
         };
@@ -651,34 +656,6 @@ module skip::entry_point {
         response
     }
 
-    #[test]
-    public fun insert_callback_to_memo() {
-        let memo=string::utf8(b"{\"move\":{\"message\":{}}}");
-        let obj = simple_json::from_json_object(json::parse(memo));
-        simple_json::increase_depth(&mut obj);
-        simple_json::increase_depth(&mut obj);
-        /*
-            "async_callback": {
-                "id": ,
-                "module_address": "",
-                "module_name": ""
-            }
-        */
-        simple_json::set_object(&mut obj, option::some(string::utf8(b"async_callback")));
-        simple_json::increase_depth(&mut obj);
-        simple_json::set_int_raw(&mut obj, option::some(string::utf8(b"id")), true, 1);
-        simple_json::set_string(&mut obj, 
-                                option::some(string::utf8(b"module_address")), 
-                                string::utf8(b"0x1"));
-        
-        simple_json::set_string(&mut obj, 
-                                option::some(string::utf8(b"module_name")), 
-                                string::utf8(b"ack_callback2"));
-        let memo = json::stringify(simple_json::to_json_object(&obj));
-        
-        assert!(memo == string::utf8(b"{\"move\":{\"async_callback\":{\"id\":1,\"module_address\":\"0x1\",\"module_name\":\"ack_callback2\"},\"message\":{}}}"), 1);
-    }
-
     #[test_only]
     use initia_std::coin::{BurnCapability, FreezeCapability, MintCapability};
 
@@ -687,7 +664,7 @@ module skip::entry_point {
 
     #[test(chain=@0x1, skip=@skip)]
     public fun test_post_action_with_empty_memo(chain: &signer, skip: &signer) {
-        primary_fungible_store::init_module_for_test(chain);
+        primary_fungible_store::init_module_for_test();
         let (_, _, mint_cap) = initialized_coin(chain, string::utf8(b"usdc"));
 
         let c = coin::mint(&mint_cap, 1000000000);
@@ -726,20 +703,20 @@ module skip::entry_point {
     fun test_add_cb_to_memo_empty() {
         let memo = string::utf8(b"");
         let memo = add_cb_to_memo(memo, 1, @0x101);
-        assert!(memo == string::utf8(b"{\"move\":{\"async_callback\":{\"id\":1,\"module_address\":\"0x0000000000000000000000000000000000000000000000000000000000000101\",\"module_name\":\"ack_callback2\"}}}"), 0)
+        assert!(memo == string::utf8(b"{\"move\":{\"async_callback\":{\"id\":1,\"module_address\":\"0x0000000000000000000000000000000000000000000000000000000000000101\",\"module_name\":\"ack_callback\"}}}"), 0)
     }
 
     #[test]
     fun test_add_cb_to_memo_only_move() {
         let memo = string::utf8(b"{\"move\":{}}");
         let memo = add_cb_to_memo(memo, 1, @0x101);
-        assert!(memo == string::utf8(b"{\"move\":{\"async_callback\":{\"id\":1,\"module_address\":\"0x0000000000000000000000000000000000000000000000000000000000000101\",\"module_name\":\"ack_callback2\"}}}"), 0)
+        assert!(memo == string::utf8(b"{\"move\":{\"async_callback\":{\"id\":1,\"module_address\":\"0x0000000000000000000000000000000000000000000000000000000000000101\",\"module_name\":\"ack_callback\"}}}"), 0)
     }
 
     #[test]
     fun test_add_cb_to_memo_except_move() {
         let memo = string::utf8(b"{\"forward\":{\"receiver\":\"chain-c-bech32-address\"},\"wasm\":{}}");
         let memo = add_cb_to_memo(memo, 1, @0x101);
-        assert!(memo == string::utf8(b"{\"forward\":{\"receiver\":\"chain-c-bech32-address\"},\"move\":{\"async_callback\":{\"id\":1,\"module_address\":\"0x0000000000000000000000000000000000000000000000000000000000000101\",\"module_name\":\"ack_callback2\"}},\"wasm\":{}}"), 0)
+        assert!(memo == string::utf8(b"{\"forward\":{\"receiver\":\"chain-c-bech32-address\"},\"move\":{\"async_callback\":{\"id\":1,\"module_address\":\"0x0000000000000000000000000000000000000000000000000000000000000101\",\"module_name\":\"ack_callback\"}},\"wasm\":{}}"), 0)
     }
 }

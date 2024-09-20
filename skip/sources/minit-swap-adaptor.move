@@ -4,7 +4,7 @@ module skip::initia_minitswap {
     use std::error;
 
     use initia_std::minitswap;
-    use initia_std::decimal128::Decimal128;
+    use initia_std::bigdecimal::BigDecimal;
     use initia_std::coin;
     use initia_std::fungible_asset::Metadata;
     use initia_std::object::Object;
@@ -17,12 +17,12 @@ module skip::initia_minitswap {
 
     struct SimulateSwapExactAssetInResponse has copy, drop, store {
         amount_out: u64,
-        spot_price: Option<Decimal128>,
+        spot_price: Option<BigDecimal>,
     }
 
     struct SimulateSwapExactAssetOutResponse has copy, drop, store {
         amount_in: u64,
-        spot_price: Option<Decimal128>,
+        spot_price: Option<BigDecimal>,
     }
 
     public entry fun swap_exact_asset_in(
@@ -62,7 +62,7 @@ module skip::initia_minitswap {
     }
 
     public fun unpack_simulate_swap_exact_asset_in_response(response: &SimulateSwapExactAssetInResponse)
-    : (u64, Option<Decimal128>) {
+    : (u64, Option<BigDecimal>) {
         (
             response.amount_out,
             response.spot_price,
@@ -70,7 +70,7 @@ module skip::initia_minitswap {
     }
 
     public fun unpack_simulate_swap_exact_asset_out_response(response: &SimulateSwapExactAssetOutResponse)
-    : (u64, Option<Decimal128>) {
+    : (u64, Option<BigDecimal>) {
         (
             response.amount_in,
             response.spot_price,
@@ -121,7 +121,7 @@ module skip::initia_minitswap {
     public fun get_spot_price(
         _pools: vector<String>,
         coins: vector<String>,
-    ): Decimal128 {
+    ): BigDecimal {
         assert!(vector::length(&coins) == 2, error::invalid_state(EINVALID_ARGUMENTS));
         minitswap::spot_price(coin::denom_to_metadata(*vector::borrow(&coins, 0)), coin::denom_to_metadata(*vector::borrow(&coins, 1)))
     }
@@ -177,7 +177,9 @@ module skip::initia_minitswap {
     #[test_only]
     use std::signer;
     #[test_only]
-    use initia_std::decimal128;
+    use initia_std::bigdecimal;
+    #[test_only]
+    use initia_std::biguint;
 
     #[test_only]
     fun initialized_coin(
@@ -201,20 +203,28 @@ module skip::initia_minitswap {
     fun initialized_module_for_test(
         chain: &signer
     ): vector<Object<Metadata>> {
-        primary_fungible_store::init_module_for_test(chain);
-        minitswap::init_module_for_test(chain);
-        stableswap::init_module_for_test(chain);
+        primary_fungible_store::init_module_for_test();
+        minitswap::init_module_for_test();
+        stableswap::init_module_for_test();
 
         block::set_block_info(0, 100);
 
         let chain_addr = signer::address_of(chain);
 
         let (_, _, initia_mint_cap) = initialized_coin(chain, string::utf8(b"uinit"));
-        let (_, _, l2_1_mint_cap) = initialized_coin(chain, string::utf8(b"L2 1"));
-        let (_, _, l2_2_mint_cap) = initialized_coin(chain, string::utf8(b"L2 2"));
+        let (_, _, l2_1_mint_cap) = initialized_coin(chain, string::utf8(
+                    b"ibc/82EB1C694C571F954E68BFD68CFCFCD6123B0EBB69AAA8BAB7A082939B45E802"
+                ));
+        let (_, _, l2_2_mint_cap) = initialized_coin(chain, string::utf8(
+                    b"ibc/AD8D520BF2D981113B652A3BCD55368EF146FCB9E016F8B1DAECAA5D570BC8A1"
+                ));
         let init_metadata = coin::metadata(chain_addr, string::utf8(b"uinit"));
-        let l2_1_metadata = coin::metadata(chain_addr, string::utf8(b"L2 1"));
-        let l2_2_metadata = coin::metadata(chain_addr, string::utf8(b"L2 2"));
+        let l2_1_metadata = coin::metadata(chain_addr, string::utf8(
+                    b"ibc/82EB1C694C571F954E68BFD68CFCFCD6123B0EBB69AAA8BAB7A082939B45E802"
+                ));
+        let l2_2_metadata = coin::metadata(chain_addr, string::utf8(
+                    b"ibc/AD8D520BF2D981113B652A3BCD55368EF146FCB9E016F8B1DAECAA5D570BC8A1"
+                ));
 
         coin::mint_to(&initia_mint_cap, chain_addr, 100000000);
         coin::mint_to(&l2_1_mint_cap, chain_addr, 1000000000);
@@ -225,21 +235,29 @@ module skip::initia_minitswap {
         minitswap::create_pool(
             chain,
             l2_1_metadata,
-            decimal128::from_ratio(100000, 1),
+            bigdecimal::from_ratio(biguint::from_u64(100000), biguint::from_u64(1)),
             10000000,
             3000,
-            decimal128::from_ratio(7, 10),
-            decimal128::from_ratio(2, 1),
+            bigdecimal::from_ratio(biguint::from_u64(7), biguint::from_u64(10)),
+            bigdecimal::from_ratio(biguint::from_u64(2), biguint::from_u64(1)),
+            0,
+            string::utf8(b"0x1"),
+            1,
+            string::utf8(b"channel-0")
         );
 
         minitswap::create_pool(
             chain,
             l2_2_metadata,
-            decimal128::from_ratio(100000, 1),
+            bigdecimal::from_ratio(biguint::from_u64(100000), biguint::from_u64(1)),
             10000000,
             3000,
-            decimal128::from_ratio(7, 10),
-            decimal128::from_ratio(2, 1),
+            bigdecimal::from_ratio(biguint::from_u64(7), biguint::from_u64(10)),
+            bigdecimal::from_ratio(biguint::from_u64(2), biguint::from_u64(1)),
+            0,
+            string::utf8(b"0x1"),
+            2,
+            string::utf8(b"channel-2")
         );
 
         vector[init_metadata,l2_1_metadata,l2_2_metadata]
@@ -259,7 +277,7 @@ module skip::initia_minitswap {
         swap_exact_asset_in(&chain, 1000000, vector::empty(), coins, 1000);
 
         assert!(coin::balance(chain_addr, *vector::borrow(&coins, 0)) == before_coin0 - 1000000, 0);
-        assert!(coin::balance(chain_addr, *vector::borrow(&coins, 1)) == before_coin1 + 992741, 1);
+        assert!(coin::balance(chain_addr, *vector::borrow(&coins, 1)) == before_coin1 + 992740, 1);
     }
 
     #[test(chain = @0x1)]
@@ -276,7 +294,7 @@ module skip::initia_minitswap {
         swap_exact_asset_out(&chain, 992741, vector::empty(), coins, 10000000);
 
         assert!(coin::balance(chain_addr, *vector::borrow(&coins, 0)) == before_coin0 - 1000000, 0);
-        assert!(coin::balance(chain_addr, *vector::borrow(&coins, 1)) == before_coin1 + 992741, 1);
+        assert!(coin::balance(chain_addr, *vector::borrow(&coins, 1)) == before_coin1 + 992740, 1);
     }
 
     #[test(chain = @0x1)]
@@ -286,7 +304,7 @@ module skip::initia_minitswap {
         let metadatas = initialized_module_for_test(&chain);
         let coins = vector[*vector::borrow(&metadatas, 1), *vector::borrow(&metadatas, 0)];
         let expected_amount = simulate_swap_exact_asset_in_(1000000, vector::empty(), coins);
-        assert!(expected_amount == 992741, 0);
+        assert!(expected_amount == 992740, 0);
     }
 
     #[test(chain = @0x1)]

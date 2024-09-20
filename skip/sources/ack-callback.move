@@ -1,4 +1,4 @@
-module skip::ack_callback2 {    
+module skip::ack_callback {    
     use initia_std::simple_map::{Self, SimpleMap};
     use initia_std::coin;
     use initia_std::object::{Object};
