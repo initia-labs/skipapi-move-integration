@@ -4,7 +4,7 @@ version = "1.0.0"
 authors = []
 
 [addresses]
-skip = "0x777105889E6E42F2BED14DD4D7286C9E982A3E31"
+skip = ""
 initia_std = "0x1"
 std = "0x1"
 
