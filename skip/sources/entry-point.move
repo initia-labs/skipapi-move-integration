@@ -1,95 +1,81 @@
-module skip::entrypoint {    
+module skip::entry_point {    
     use std::signer;
     use std::vector;
-    use std::bcs;
     use std::error;
+    use std::bcs;
 
     use initia_std::string::{Self, String};
-    use initia_std::simple_map::{Self, SimpleMap};
-    use initia_std::event;
     use initia_std::fungible_asset::{Metadata};
-    use initia_std::object::{Object};
+    use initia_std::object::{Self, Object};
     use initia_std::cosmos;
     use initia_std::coin;
     use initia_std::from_bcs;
     use initia_std::base64;
-    use initia_std::json;
-    use initia_std::simple_json;
-    use initia_std::option;
+    use initia_std::json::{Self, JSONValue, JSONObject};
+    use initia_std::option::{Self, Option};
     use initia_std::address;
     use initia_std::string_utils;
+    use initia_std::bigdecimal::{Self, BigDecimal};
 
-    use skip::ackcallback;
+    use skip::ack_callback;
+    use skip::initia_dex;
+    use skip::initia_stableswap;
+    use skip::initia_minitswap;
 
-    struct AdaptorInfo has copy, drop, store{
-        module_address: address,
+    struct SimulateSwapExactAssetInResponse has drop {
+        amount_out: u64,
+        spot_price: Option<BigDecimal>,
+    }
+
+    struct SimulateSwapExactAssetOutResponse has drop {
+        amount_in: u64,
+        spot_price: Option<BigDecimal>,
+    }
+
+    struct InitiateTokenDepositObject has copy, drop {
+        _type_: String,
+        sender: String,
+        bridge_id: String,
+        to: String,
+        data: String,
+        amount: Option<AmountObject>,
+    }
+
+    struct AmountObject has copy, drop {
+        denom: String,
+        amount: String,
+    }
+
+    struct AsyncCallbackObject has copy, drop {
+        id: JSONValue,
+        module_address: String,
         module_name: String,
     }
 
-    struct ModuleStore has key {
-        swap_venues: SimpleMap<String, AdaptorInfo>,
-        swap_venue_count: u64,
-    }
-
-    struct ActionTransferArgs has copy, drop {
-        to_address: address,
-    }
-
-    struct ActionIBCTransferArgs has copy, drop {
-        source_channel: String,
-        receiver: String,
-        memo: String,
-    }
-
-    struct ActionContractArgs has copy, drop {
-        module_address: address,
-        module_name: String,
-        function_name: String,
-        type_args: vector<String>,
-        args: vector<vector<u8>>,
-    }
+    const INITIA_DEX: u8 = 0;
+    const INITIA_STABLESWAP: u8 = 1;
+    const INITIA_MINITSWAP: u8 = 2;
 
     const EKEY_ALREADY_EXISTS: u64 = 0;
     const EKEY_NOT_FOUND: u64 = 1;
     const ESWAP_INVALID_FUNCTION: u64 = 2;
     const EINVALID_ASSET: u64 = 3;
     const ELESS_THAN_MIN_ASSET: u64 = 4;
+    const EINVALID_POST_ACTION: u64 = 5;
+    const EMAX_OFFER_AMOUNT: u64 = 6;
+    const EINVALID_SWAP_VENUE: u64 = 7;
+    const EINVALID_VENUE_LENGTH: u64 = 8;
+    const EINVALID_POOLS_LENGTH: u64 = 9;
+    const EINVALID_COINS_LENGTH: u64 = 10;
+    const EINVALID_ARGUMENTS:u64 = 11;
+
+    const SWAP_FUNCTION_SWAP_EXACT_ASSET_IN: u8 = 0;
+    const SWAP_FUNCTION_SWAP_EXACT_ASSET_OUT: u8 = 1;
 
     const POST_ACTION_TRANSFER: u8 = 0;
     const POST_ACTION_IBCTRANSFER: u8 = 1;
     const POST_ACTION_CONTRACT: u8 = 2;
     const POST_ACTION_OPBRIDGE: u8 = 3;
-
-    const INITIAL_SWAP_VENUES: vector<vector<u8>> = vector[b"initia_dex", b"initia_minitswap", b"initia_stableswap"];
-
-    #[event]
-    struct AddSwapVenueEvent has drop, store {
-        name: String,
-        module_address: address,
-        module_name: String,
-    }
-
-    fun init_module(chain: &signer) {
-        let swap_venues = simple_map::create<String,AdaptorInfo>();
-        vector::for_each(INITIAL_SWAP_VENUES, |swap_venue| {
-            let swap_venue = string::utf8(swap_venue);
-            simple_map::add(&mut swap_venues, swap_venue, AdaptorInfo {
-                module_address: @skip,
-                module_name: swap_venue,
-            });
-            event::emit<AddSwapVenueEvent>(
-                AddSwapVenueEvent {
-                    name: swap_venue,
-                    module_address: @skip,
-                    module_name: swap_venue,
-                }
-            )
-        });
-        move_to(chain, ModuleStore {
-            swap_venues: swap_venues,
-            swap_venue_count: vector::length(&INITIAL_SWAP_VENUES),
-        });
-    }
 
     //
     // Entry Functions
@@ -123,6 +109,14 @@ module skip::entrypoint {
     ///         args: bcs(vec![vec![u8]]),
     ///     ]
     /// 
+    /// 4. Swap and OPBridge
+    /// 
+    ///    action args: vec![  
+    ///        bridge_id: bcs(u64),
+    ///        to: bcs(String),
+    ///        data: bcs(String),
+    ///    ]
+    /// 
     /// Note: Entry functions can accept primitive types, Strings, Option, and vectors as arguments, 
     /// but they cannot accept Structs (e.g. Resources like FungibleAsset).
     /// 
@@ -130,211 +124,159 @@ module skip::entrypoint {
     /// 
     public entry fun swap_and_action(
         account: &signer,
-        swap_venue_name: String,
-        swap_function_name: String,
-        user_swap_coin: String,
-        user_swap_amount: u64,
-        pools: vector<String>,
-        coins: vector<String>,
-        min_swap_coin: String,
-        min_swap_amount: u64,
+        venues: vector<u8>,
+        function: u8,
+        // this is used as max_offer_amount in swap_exact_asset_out
+        amount_in: u64, 
+        // this is used as min_amount in swap_exact_asset_in
+        amount_out: u64, 
+        pools: vector<vector<String>>,
+        coins: vector<vector<String>>,
+
+        post_action: u8,
         timeout_timestamp: u64,
-        post_swap_action: u8,
         recover_address: String,
-        action_args: vector<vector<u8>>,
-    ) acquires ModuleStore{
-        swap_and_action_(
+        post_action_args: vector<vector<u8>>,
+    ) {
+        let (coin_out, amount_out) = swap_(
             account,
-            swap_venue_name,
-            swap_function_name,
-            user_swap_coin,
-            user_swap_amount,
+            venues,
+            function,
+            amount_in,
+            amount_out,
             pools,
             coins,
-            min_swap_coin,
-            min_swap_amount,
-            timeout_timestamp,
-            post_swap_action,
-            recover_address,
-            action_args,
         );
-    }
-
-    /// This is not entended to be executed by a user,
-    /// but it will be executed by swap_and_action.
-    /// it will be executed with coin amount of (current_balance - pre_swap_balance)
-    public entry fun post_action(
-        account: &signer,
-        coin: Object<Metadata>,
-        pre_swap_balance: u64,
-        timeout_timestamp: u64,
-        post_swap_action: u8,
-        recover_address: address,
-        action_args: vector<vector<u8>>,
-    ) {
         post_action_(
             account,
-            coin,
-            pre_swap_balance,
+            coin_out,
+            amount_out,
+            post_action,
             timeout_timestamp,
-            post_swap_action,
             recover_address,
-            action_args,
-        )
+            post_action_args,
+        );
     }
 
-    //
-    // Implementations
-    //
-
-    fun swap_and_action_(
+    fun swap_(
         account: &signer,
-        swap_venue_name: String,
-        swap_function_name: String,
-        user_swap_coin: String,
-        user_swap_amount: u64,
-        pools: vector<String>,
-        coins: vector<String>,
-        min_swap_coin: String,
-        min_swap_amount: u64,
-        timeout_timestamp: u64,
-        post_swap_action: u8,
-        recover_address: String,
-        action_args: vector<vector<u8>>,
-    ) acquires ModuleStore {
-        let module_store = borrow_global<ModuleStore>(@skip);
-        let swap_venue_info = simple_map::borrow(&module_store.swap_venues, &swap_venue_name);
+        venues: vector<u8>,
+        function: u8,
+        // this is used as max_offer_amount in swap_exact_asset_out
+        amount_in: u64, 
+        // this is used as min_amount in swap_exact_asset_in
+        amount_out: u64, 
+        pools: vector<vector<String>>,
+        coins: vector<vector<String>>,
+    ): (Object<Metadata>, u64) {
 
-        let user_swap_coin = coin::denom_to_metadata(user_swap_coin);
-        let pools = vector::map(pools, |pool| coin::denom_to_metadata(pool));
-        let coins = vector::map(coins, |coin| coin::denom_to_metadata(coin));
+        let venue_length = vector::length(&venues);
+        assert!(venue_length > 0, error::invalid_argument(EINVALID_VENUE_LENGTH));
+        assert!(vector::length(&pools) == venue_length, error::invalid_argument(EINVALID_POOLS_LENGTH));
+        assert!(vector::length(&coins) == venue_length, error::invalid_argument(EINVALID_COINS_LENGTH));
 
-        let min_swap_coin = coin::denom_to_metadata(min_swap_coin);
-        let recover_address = address::from_sdk(recover_address);
+        if( function == SWAP_FUNCTION_SWAP_EXACT_ASSET_OUT) {
+            let offer_amount = simulate_swap_exact_asset_out(amount_out, venues, pools, coins);
+            assert!(offer_amount <= amount_in, EMAX_OFFER_AMOUNT);
 
-        assert!( swap_function_name == string::utf8(b"swap_exact_asset_in")
-                    || swap_function_name == string::utf8(b"swap_exact_asset_out"), 
-                    error::invalid_argument(ESWAP_INVALID_FUNCTION),
-        );
-        assert!(user_swap_coin == *vector::borrow(&coins, 0), EINVALID_ASSET);
-        assert!(min_swap_coin == *vector::borrow(&coins, vector::length(&coins) - 1), EINVALID_ASSET);
+            amount_out = amount_out * 99 / 100;
+            amount_in = offer_amount;
+        } else if(function != SWAP_FUNCTION_SWAP_EXACT_ASSET_IN) {
+            abort error::invalid_argument(ESWAP_INVALID_FUNCTION)
+        };
 
-        let swapmsg_args = create_swapmsg_args(
-            user_swap_amount,
-            pools,
-            coins,
-            min_swap_amount,
-        );
-        
-        // add move msgexecute into response messages 
-        cosmos::move_execute(
-            account,
-            swap_venue_info.module_address, 
-            swap_venue_info.module_name, 
-            swap_function_name,
-            vector<String>[],
-            swapmsg_args,
-        );
+        let i = 0;
+        let coin_in: Object<Metadata> = coin::denom_to_metadata(*vector::borrow(vector::borrow(&coins, 0), 0));
+        while(i < venue_length){
+            let venue = *vector::borrow(&venues, i);
+            let pools_i = *vector::borrow(&pools, i);
+            let coins_i = vector::map(*vector::borrow(&coins, i), |coin| coin::denom_to_metadata(coin));
+            
 
-        let pre_swap_balance = coin::balance(signer::address_of(account), min_swap_coin);
+            assert!(coin_in == *vector::borrow(&coins_i, 0), EINVALID_ASSET);
+            let min_swap_out_amount = if (i == venue_length - 1) {
+                amount_out
+            } else {
+                0
+            };
+            let coin_out = *vector::borrow(&coins_i, vector::length(&coins_i) - 1);
+            let pre_swap_balance_out = coin::balance(signer::address_of(account), coin_out);
+            swap_exact_asset_in_(account, venue, amount_in, pools_i, coins_i, min_swap_out_amount);
+            let post_swap_balance_out = coin::balance(signer::address_of(account), coin_out);
+            amount_in = post_swap_balance_out - pre_swap_balance_out;
+            coin_in = coin_out;
 
-        let postaction_args = create_postaction_args(
-            min_swap_coin,
-            pre_swap_balance,
-            timeout_timestamp, 
-            post_swap_action,
-            recover_address,
-            action_args,
-        );
-
-        cosmos::move_execute(
-            account,
-            @skip,
-            string::utf8(b"entrypoint"),
-            string::utf8(b"post_action"),
-            vector<String>[],
-            postaction_args,
-        )
+            i = i + 1;
+        };
+        (coin_in, amount_in)
     }
 
-    fun create_swapmsg_args(
-        user_swap_amount: u64,
-        pools: vector<Object<Metadata>>,
+    fun swap_exact_asset_in_(
+        account: &signer,
+        venue: u8,
+        amount: u64,
+        pools: vector<String>,
         coins: vector<Object<Metadata>>,
         min_amount: u64,
-    ): vector<vector<u8>> {
-        let msg_args = vector<vector<u8>>[];
-        let amount_arg = bcs::to_bytes(&user_swap_amount);
-        let pools_arg = bcs::to_bytes(&pools);
-        let coins_arg = bcs::to_bytes(&coins);
-        let min_amount_arg = bcs::to_bytes(&min_amount);
-
-        vector::push_back(&mut msg_args, amount_arg);
-        vector::push_back(&mut msg_args, pools_arg);
-        vector::push_back(&mut msg_args, coins_arg);
-        vector::push_back(&mut msg_args, min_amount_arg);
-
-        msg_args
-    }
-
-    fun create_postaction_args(
-        coin: Object<Metadata>,
-        pre_swap_balance: u64,
-        timeout_timestamp: u64,
-        post_swap_action: u8,
-        recover_address: address,
-        action_args: vector<vector<u8>>,
-    ): vector<vector<u8>> {
-        let msg_args = vector<vector<u8>>[];
-        let coin_arg = bcs::to_bytes(&coin);
-        let pre_swap_balance_arg = bcs::to_bytes(&pre_swap_balance);
-        let timeout_timestamp_arg = bcs::to_bytes(&timeout_timestamp);
-        let post_swap_action_arg = bcs::to_bytes(&post_swap_action);
-        let recover_address_arg = bcs::to_bytes(&recover_address);
-        let action_arg = bcs::to_bytes(&action_args);
-
-        vector::push_back(&mut msg_args, coin_arg);
-        vector::push_back(&mut msg_args, pre_swap_balance_arg);
-        vector::push_back(&mut msg_args, timeout_timestamp_arg);
-        vector::push_back(&mut msg_args, post_swap_action_arg);
-        vector::push_back(&mut msg_args, recover_address_arg);
-        vector::push_back(&mut msg_args, action_arg);
-
-        msg_args
+    ) {
+        if(venue == INITIA_DEX) {
+            let pools = vector::map(pools, |pool| object::convert(coin::denom_to_metadata(pool)));
+            initia_dex::swap_exact_asset_in(
+                account,
+                amount,
+                pools,
+                coins,
+                min_amount,
+            )
+        } else if(venue == INITIA_STABLESWAP){
+            let pools = vector::map(pools, |pool| object::convert(coin::denom_to_metadata(pool)));
+            initia_stableswap::swap_exact_asset_in(
+                account,
+                amount,
+                pools,
+                coins,
+                min_amount,
+            )
+        } else if(venue == INITIA_MINITSWAP){
+            initia_minitswap::swap_exact_asset_in(
+                account,
+                amount,
+                vector[],
+                coins,
+                min_amount,
+            )
+        } else {
+            abort error::invalid_argument(EINVALID_SWAP_VENUE)
+        }
     }
 
     fun post_action_(
         account: &signer,
-        coin: Object<Metadata>,
-        pre_swap_balance: u64,
+        coin_out: Object<Metadata>,
+        amount_out: u64,
+        post_action: u8,
         timeout_timestamp: u64,
-        post_swap_action: u8,
-        recover_address: address,
-        action_args: vector<vector<u8>>,
+        recover_address: String,
+        post_action_args: vector<vector<u8>>,
     ) {
-        let account_addr = signer::address_of(account);
-        let post_swap_balance = coin::balance(account_addr,coin);
-        assert!(post_swap_balance >= pre_swap_balance, error::invalid_state(ELESS_THAN_MIN_ASSET));
-        let amount = post_swap_balance - pre_swap_balance;
-
-        if(post_swap_action == POST_ACTION_TRANSFER) {
-            let to_address = unpack_action_transfer_args(action_args);
-            coin::transfer(account, to_address, coin, amount);
-        } else if(post_swap_action == POST_ACTION_IBCTRANSFER) {
-            let callback_id = ackcallback::store_recover_address(recover_address, amount, coin);
+        if(post_action == POST_ACTION_TRANSFER) {
+            let to_address = unpack_action_transfer_args(post_action_args);
+            coin::transfer(account, to_address, coin_out, amount_out);
+        } else if(post_action == POST_ACTION_IBCTRANSFER) {
+            let recover_address = address::from_sdk(recover_address);
+            let callback_id = ack_callback::store_recover_address(account, recover_address, amount_out, coin_out);
             let (
                 source_channel,
                 receiver, 
                 memo,
-            ) = unpack_action_ibctransfer_args(action_args);
+            ) = unpack_action_ibctransfer_args(post_action_args);
 
             let memo = add_cb_to_memo(memo, callback_id, @skip);
-
             cosmos::transfer(
                 account,
                 receiver,
-                coin,
-                amount,
+                coin_out,
+                amount_out,
                 string::utf8(b"transfer"),
                 source_channel,
                 0,
@@ -342,14 +284,14 @@ module skip::entrypoint {
                 timeout_timestamp,
                 memo,
             );
-        } else if(post_swap_action == POST_ACTION_CONTRACT) {
+        } else if(post_action == POST_ACTION_CONTRACT) {
             let (
                 module_address,
                 module_name,
                 function_name,
                 type_args,
                 args
-            ) = unpack_action_contract_args(action_args);
+            ) = unpack_action_contract_args(post_action_args);
             cosmos::move_execute(
                 account,
                 module_address,
@@ -358,39 +300,40 @@ module skip::entrypoint {
                 type_args,
                 args,
             );
-        } else if(post_swap_action == POST_ACTION_OPBRIDGE) {
+        } else if(post_action == POST_ACTION_OPBRIDGE) {
             let (
                 bridge_id,
                 to,
                 data
-            ) = unpack_action_opbridge_args(action_args);
-            initiate_token_deposit(account, bridge_id, to, coin, amount, data);
+            ) = unpack_action_opbridge_args(post_action_args);
+            let req = create_json_msg_initiate_token_deposit(signer::address_of(account), bridge_id, to, coin_out, amount_out, data);
+            cosmos::stargate(account, req);
+        } else {
+            abort error::invalid_argument(EINVALID_POST_ACTION)
         }
     }
 
-    fun initiate_token_deposit(
-        sender: &signer,
+    fun create_json_msg_initiate_token_deposit(
+        sender: address,
         bridge_id: u64,
         to: String,
         metadata: Object<Metadata>,
         amount: u64,
         data: String
-    ) {
-        let obj = simple_json::empty();
-        simple_json::set_object(&mut obj, option::none<String>());
-        simple_json::increase_depth(&mut obj);
-        simple_json::set_string(&mut obj, option::some(string::utf8(b"@type")), string::utf8(b"/opinit.ophost.v1.MsgInitiateTokenDeposit"));
-        simple_json::set_string(&mut obj, option::some(string::utf8(b"sender")), address::to_sdk(signer::address_of(sender)));
-        simple_json::set_string(&mut obj, option::some(string::utf8(b"bridge_id")), string_utils::to_string(&bridge_id));
-        simple_json::set_string(&mut obj, option::some(string::utf8(b"to")), to);
-        simple_json::set_string(&mut obj, option::some(string::utf8(b"data")), base64::to_string(*string::bytes(&data)));
-        simple_json::set_object(&mut obj, option::some(string::utf8(b"amount")));
-        simple_json::increase_depth(&mut obj);
-        simple_json::set_string(&mut obj, option::some(string::utf8(b"denom")), coin::metadata_to_denom(metadata));
-        simple_json::set_string(&mut obj, option::some(string::utf8(b"amount")), string_utils::to_string(&amount));
-
-        let req = json::stringify(simple_json::to_json_object(&obj));
-        cosmos::stargate(sender, req);
+    ): vector<u8> {
+        json::marshal(
+            &InitiateTokenDepositObject{
+                _type_: string::utf8(b"/opinit.ophost.v1.MsgInitiateTokenDeposit"),
+                sender: address::to_sdk(sender),
+                bridge_id: string_utils::to_string(&bridge_id),
+                to: to,
+                data: base64::to_string(*string::bytes(&data)),
+                amount: option::some(AmountObject{
+                    denom: coin::metadata_to_denom(metadata),
+                    amount: string_utils::to_string(&amount),
+                }),
+            }
+        )
     }
 
     fun add_cb_to_memo(memo: String, callback_id: u64, module_address: address): String {
@@ -398,43 +341,30 @@ module skip::entrypoint {
             memo = string::utf8(b"{}");
         };
 
-        let obj = simple_json::from_json_object(json::parse(memo));
-        simple_json::increase_depth(&mut obj);
-        
-        let move_str = string::utf8(b"move");
-        let ok = simple_json::try_find_and_set_index(&mut obj, &move_str);
-        if(!ok) {
-            simple_json::set_to_last_index(&mut obj);
-            simple_json::set_object(&mut obj, option::some(move_str));
-        };
-        simple_json::increase_depth(&mut obj);
-        /*
-            "async_callback": {
-                "id": ,
-                "module_address": "",
-                "module_name": ""
-            }
-        */
-        simple_json::set_object(&mut obj, option::some(string::utf8(b"async_callback")));
-        simple_json::increase_depth(&mut obj);
-        simple_json::set_int_raw(
-            &mut obj, 
-            option::some(string::utf8(b"id")), 
-            true, (callback_id as u256),
-        );
-        simple_json::set_string(
-            &mut obj, 
-            option::some(string::utf8(b"module_address")), 
-            address::to_string(module_address),
-        );
-        simple_json::set_string(
-            &mut obj, 
-            option::some(string::utf8(b"module_name")), 
-            string::utf8(b"ackcallback"),
-        );
-        json::stringify(simple_json::to_json_object(&obj))
-    }
+        let id = json::unmarshal<JSONValue>(*string::bytes(&string_utils::to_string(&callback_id)));
 
+        let cb_obj = AsyncCallbackObject {
+            id: id,
+            module_address: address::to_string(module_address),
+            module_name: string::utf8(b"ack_callback"),
+        };
+
+        let obj = json::unmarshal<JSONObject>(*string::bytes(&memo));
+        let move_obj = json::get_elem<JSONObject>(&obj, string::utf8(b"move"));
+
+        let move_obj = if(option::is_none(&move_obj)){
+            // make empty move object
+            json::unmarshal<JSONObject>(b"{}")
+        } else {
+            option::extract(&mut move_obj)
+        };
+
+        json::set_elem(&mut move_obj, string::utf8(b"async_callback"), &cb_obj);
+        json::set_elem(&mut obj, string::utf8(b"move"), &move_obj);
+
+        json::marshal_to_string(&obj)
+    }
+    
     fun unpack_action_transfer_args(action_args: vector<vector<u8>>): address {
         assert!(vector::length(&action_args) == 1, error::invalid_argument(0));
         let arg = vector::pop_back(&mut action_args);
@@ -538,80 +468,6 @@ module skip::entrypoint {
         action_args
     }
 
-    #[view]
-    fun pack_swap_and_action_args(
-        swap_venue_name: String,
-        swap_function_name: String,
-        user_swap_coin: address,
-        user_swap_amount: u64,
-        pools: vector<address>,
-        coins: vector<address>,
-        min_swap_coin: address,
-        min_swap_amount: u64,
-        timeout_timestamp: u64,
-        post_swap_action: u8,
-        action_args: vector<vector<u8>>
-    ): vector<String> {
-        let args = vector<String>[];
-        vector::push_back(&mut args, base64::to_string(bcs::to_bytes(&swap_venue_name)));
-        vector::push_back(&mut args, base64::to_string(bcs::to_bytes(&swap_function_name)));
-        vector::push_back(&mut args, base64::to_string(bcs::to_bytes(&user_swap_coin)));
-        vector::push_back(&mut args, base64::to_string(bcs::to_bytes(&user_swap_amount)));
-        vector::push_back(&mut args, base64::to_string(bcs::to_bytes(&pools)));
-        vector::push_back(&mut args, base64::to_string(bcs::to_bytes(&coins)));
-        vector::push_back(&mut args, base64::to_string(bcs::to_bytes(&min_swap_coin)));
-        vector::push_back(&mut args, base64::to_string(bcs::to_bytes(&min_swap_amount)));
-        vector::push_back(&mut args, base64::to_string(bcs::to_bytes(&timeout_timestamp)));
-        vector::push_back(&mut args, base64::to_string(bcs::to_bytes(&post_swap_action)));
-        vector::push_back(&mut args, base64::to_string(bcs::to_bytes(&action_args)));
-        
-        args
-    }
-
-    #[test_only]
-    public fun init_module_for_test(
-        chain: &signer
-    ) {
-        init_module(chain);
-    }
-
-    #[test(chain=@0x1)]
-    public fun default_adaptors_test(
-        chain: &signer
-    ) acquires ModuleStore{
-        init_module_for_test(chain);
-
-        let module_store = borrow_global<ModuleStore>(signer::address_of(chain));
-        let length = simple_map::length(&module_store.swap_venues);
-        assert!(length == vector::length(&INITIAL_SWAP_VENUES), 1);
-
-        vector::for_each(INITIAL_SWAP_VENUES, |swap_venue| {
-            let swap_venue = string::utf8(swap_venue);
-            let swap_venue_info = simple_map::borrow(&module_store.swap_venues, &swap_venue);
-            assert!(swap_venue_info.module_address == @skip, 2);
-            assert!(swap_venue_info.module_name == swap_venue, 3);
-        })
-    }
-
-    #[test(chain=@0x1)]
-    public fun add_swap_venue_event_test(
-        chain: &signer
-    ) {
-        init_module_for_test(chain);
-
-        let events = event::emitted_events<AddSwapVenueEvent>();
-        let length = vector::length(&events);
-        assert!(length == vector::length(&INITIAL_SWAP_VENUES), 1);
-
-        vector::enumerate_ref(&INITIAL_SWAP_VENUES, |i, swap_venue| {
-            let swap_venue = string::utf8(*swap_venue);
-            let event = vector::borrow(&events, i);
-            assert!(event.name == swap_venue, 2);
-            assert!(event.module_address == @skip, 3);
-            assert!(event.module_name == swap_venue, 4);
-        });
-    }
-
     #[test]
     public fun pack_unpack_action_transfer_args() {
         let addr = @0x1DDF1EBB9C2796754EA1DADBDEE912AB793CF647;
@@ -647,50 +503,156 @@ module skip::entrypoint {
         assert!(to == b, 2);
         assert!(data == c, 3);
     }
+    //
+    // View Functions
+    //
+    #[view]
+    fun simulate_swap_exact_asset_in(
+        amount: u64,
+        swap_venues: vector<u8>,
+        pools: vector<vector<String>>,
+        coins: vector<vector<String>>,
+    ):u64 {
+        let venue_length = vector::length(&swap_venues);
+        assert!(venue_length > 0, error::invalid_argument(EINVALID_VENUE_LENGTH));
+        assert!(vector::length(&pools) == venue_length, error::invalid_argument(EINVALID_POOLS_LENGTH));
+        assert!(vector::length(&coins) == venue_length, error::invalid_argument(EINVALID_COINS_LENGTH));
+        let i = 0;
+        let coin_in: String = *vector::borrow(vector::borrow(&coins, 0), 0);
+        while(i < venue_length){
+            let venue = *vector::borrow(&swap_venues, i);
+            let pools_i = *vector::borrow(&pools, i);
+            let coins_i = *vector::borrow(&coins, i);
 
-    #[test]
-    public fun insert_callback_to_memo() {
-        let memo=string::utf8(b"{\"move\":{\"message\":{}}}");
-        let obj = simple_json::from_json_object(json::parse(memo));
-        simple_json::increase_depth(&mut obj);
-        simple_json::increase_depth(&mut obj);
-        /*
-            "async_callback": {
-                "id": ,
-                "module_address": "",
-                "module_name": ""
-            }
-        */
-        simple_json::set_object(&mut obj, option::some(string::utf8(b"async_callback")));
-        simple_json::increase_depth(&mut obj);
-        simple_json::set_int_raw(&mut obj, option::some(string::utf8(b"id")), true, 1);
-        simple_json::set_string(&mut obj, 
-                                option::some(string::utf8(b"module_address")), 
-                                string::utf8(b"0x1"));
-        
-        simple_json::set_string(&mut obj, 
-                                option::some(string::utf8(b"module_name")), 
-                                string::utf8(b"ackcallback"));
-        let memo = json::stringify(simple_json::to_json_object(&obj));
-        
-        assert!(memo == string::utf8(b"{\"move\":{\"async_callback\":{\"id\":1,\"module_address\":\"0x1\",\"module_name\":\"ackcallback\"},\"message\":{}}}"), 1);
+            assert!(coin_in == *vector::borrow(&coins_i, 0), EINVALID_ASSET);
+            if(venue == INITIA_DEX) {
+                amount = initia_dex::simulate_swap_exact_asset_in(amount, pools_i, coins_i);
+            } else if(venue == INITIA_STABLESWAP) {
+                amount = initia_stableswap::simulate_swap_exact_asset_in(amount, pools_i, coins_i);
+            } else if(venue == INITIA_MINITSWAP) {
+                amount = initia_minitswap::simulate_swap_exact_asset_in(amount, pools_i, coins_i);
+            } else {
+                abort error::invalid_argument(EINVALID_SWAP_VENUE)
+            };
+            coin_in = *vector::borrow(&coins_i, vector::length(&coins_i) - 1);
+            i = i + 1;
+        };
+        amount
     }
 
-    #[test]
-    public fun pack_unpack_action_contract_args() {
-        let module_addr = @0x123;
-        let module_name = string::utf8(b"simplecount");
-        let function_name = string::utf8(b"increase");
-        let type_args = vector<String>[];
-        let args = vector<vector<u8>>[];
+    #[view]
+    fun simulate_swap_exact_asset_out(
+        amount: u64,
+        swap_venues: vector<u8>,
+        pools: vector<vector<String>>,
+        coins: vector<vector<String>>,
+    ):u64 {
+        let venue_length = vector::length(&swap_venues);
+        assert!(venue_length > 0, error::invalid_argument(EINVALID_VENUE_LENGTH));
+        assert!(vector::length(&pools) == venue_length, error::invalid_argument(EINVALID_POOLS_LENGTH));
+        assert!(vector::length(&coins) == venue_length, error::invalid_argument(EINVALID_COINS_LENGTH));
+        let i = venue_length ;
+        let last_coins_i = vector::borrow(&coins, vector::length(&coins)-1);
+        let coin_out: String = *vector::borrow(last_coins_i, vector::length(last_coins_i)-1);
+        while(i > 0){
+            i = i - 1;
+            let venue = *vector::borrow(&swap_venues, i);
+            let pools_i = *vector::borrow(&pools, i);
+            let coins_i = *vector::borrow(&coins, i);
+            assert!(coin_out == *vector::borrow(&coins_i, vector::length(&coins_i)-1), EINVALID_ASSET);
+
+            if(venue == INITIA_DEX) {
+                amount = initia_dex::simulate_swap_exact_asset_out(amount, pools_i, coins_i);
+            } else if(venue == INITIA_STABLESWAP) {
+                amount = initia_stableswap::simulate_swap_exact_asset_out(amount, pools_i, coins_i);
+            } else if(venue == INITIA_MINITSWAP) {
+                amount = initia_minitswap::simulate_swap_exact_asset_out(amount, pools_i, coins_i);
+            }else {
+                abort error::invalid_argument(EINVALID_SWAP_VENUE)
+            };
+
+            coin_out = *vector::borrow(&coins_i, 0);
+        };
+        amount
+    }
+
+    #[view]
+    public fun get_spot_price(
+        swap_venues: vector<u8>,
+        pools: vector<vector<String>>,
+        coins: vector<vector<String>>,
+    ): BigDecimal {
+        let venue_length = vector::length(&swap_venues);
+        assert!(venue_length > 0, error::invalid_argument(EINVALID_VENUE_LENGTH));
+        assert!(vector::length(&pools) == venue_length, error::invalid_argument(EINVALID_POOLS_LENGTH));
+        assert!(vector::length(&coins) == venue_length, error::invalid_argument(EINVALID_COINS_LENGTH));
+        let i = 0;
+        let coin_in: String = *vector::borrow(vector::borrow(&coins, 0), 0);
+        let spot_price = bigdecimal::one();
+        while(i < venue_length) {
+            let venue = *vector::borrow(&swap_venues, i);
+            let pools_i = *vector::borrow(&pools, i);
+            let coins_i = *vector::borrow(&coins, i);
+            let price: BigDecimal;
+
+            assert!(coin_in == *vector::borrow(&coins_i, 0), EINVALID_ASSET);
+            if(venue == INITIA_DEX) {
+                price = initia_dex::get_spot_price(pools_i, coins_i);
+            } else if(venue == INITIA_STABLESWAP) {
+                price = initia_stableswap::get_spot_price(pools_i, coins_i);
+            } else if(venue == INITIA_MINITSWAP) {
+                price = initia_minitswap::get_spot_price(pools_i, coins_i);
+            }else {
+                abort error::invalid_argument(EINVALID_SWAP_VENUE)
+            };
+            spot_price = bigdecimal::mul(spot_price, price);
+            coin_in = *vector::borrow(&coins_i, vector::length(&coins_i) - 1);
+            i = i + 1;
+        };
         
-        let packed_args = pack_action_contract_args(module_addr, module_name, function_name, type_args, args);
-        let (a, b, c, d, e) = unpack_action_contract_args(packed_args);
-        assert!(module_addr == a, 1);
-        assert!(module_name == b, 2);
-        assert!(function_name == c, 3);
-        assert!(type_args == d, 4);
-        assert!(args == e, 5);
+        spot_price
+    }
+
+    #[view]
+    public fun simulate_swap_exact_asset_in_with_metadata(
+        amount: u64,
+        swap_venues: vector<u8>,
+        pools: vector<vector<String>>,
+        coins: vector<vector<String>>,
+        include_spot_price: bool,
+    ): SimulateSwapExactAssetInResponse {
+        let response = SimulateSwapExactAssetInResponse {
+            amount_out: simulate_swap_exact_asset_in(amount, swap_venues,pools, coins),
+            spot_price: option::none(),
+        };
+
+        if (include_spot_price) {
+            let spot_price = get_spot_price(swap_venues, pools, coins);
+            response.spot_price = option::some(spot_price);
+        };
+        
+        response
+    }
+
+    #[view]
+    public fun simulate_swap_exact_asset_out_with_metadata(
+        amount: u64,
+        swap_venues: vector<u8>,
+        pools: vector<vector<String>>,
+        coins: vector<vector<String>>,
+        include_spot_price: bool,
+    ): SimulateSwapExactAssetOutResponse {
+        let response = SimulateSwapExactAssetOutResponse {
+            amount_in: simulate_swap_exact_asset_out(amount, swap_venues,pools, coins),
+            spot_price: option::none(),
+        };
+
+        if (include_spot_price) {
+            let spot_price = get_spot_price(swap_venues, pools, coins);
+            response.spot_price = option::some(spot_price);
+        };
+        
+        response
     }
 
     #[test_only]
@@ -701,21 +663,19 @@ module skip::entrypoint {
 
     #[test(chain=@0x1, skip=@skip)]
     public fun test_post_action_with_empty_memo(chain: &signer, skip: &signer) {
-        init_module_for_test(skip);
-        primary_fungible_store::init_module_for_test(chain);
-        ackcallback::init_module_for_test(skip);
+        primary_fungible_store::init_module_for_test();
         let (_, _, mint_cap) = initialized_coin(chain, string::utf8(b"usdc"));
 
         let c = coin::mint(&mint_cap, 1000000000);
         coin::deposit(signer::address_of(skip), c);
 
-        post_action(
+        post_action_(
             skip,
             coin::denom_to_metadata(string::utf8(b"usdc")),
             9193547,
-            1711667948005706000,
             1,
-            address::from_sdk(string::utf8(b"init1wsdmqqsv2ze9uwvqz3mzn48jtqpawhrcfhfr25")),
+            1711667948005706000,
+            string::utf8(b"init1wsdmqqsv2ze9uwvqz3mzn48jtqpawhrcfhfr25"),
             from_bcs::to_vector_bytes(base64::from_string(string::utf8(b"AwoJY2hhbm5lbC0wLCtpbml0MXdzZG1xcXN2MnplOXV3dnF6M216bjQ4anRxcGF3aHJjZmhmcjI1AQA="))),
         )
     }
@@ -742,20 +702,35 @@ module skip::entrypoint {
     fun test_add_cb_to_memo_empty() {
         let memo = string::utf8(b"");
         let memo = add_cb_to_memo(memo, 1, @0x101);
-        assert!(memo == string::utf8(b"{\"move\":{\"async_callback\":{\"id\":1,\"module_address\":\"0x0000000000000000000000000000000000000000000000000000000000000101\",\"module_name\":\"ackcallback\"}}}"), 0)
+        assert!(memo == string::utf8(b"{\"move\":{\"async_callback\":{\"id\":1,\"module_address\":\"0x0000000000000000000000000000000000000000000000000000000000000101\",\"module_name\":\"ack_callback\"}}}"), 0)
     }
 
     #[test]
     fun test_add_cb_to_memo_only_move() {
         let memo = string::utf8(b"{\"move\":{}}");
         let memo = add_cb_to_memo(memo, 1, @0x101);
-        assert!(memo == string::utf8(b"{\"move\":{\"async_callback\":{\"id\":1,\"module_address\":\"0x0000000000000000000000000000000000000000000000000000000000000101\",\"module_name\":\"ackcallback\"}}}"), 0)
+        assert!(memo == string::utf8(b"{\"move\":{\"async_callback\":{\"id\":1,\"module_address\":\"0x0000000000000000000000000000000000000000000000000000000000000101\",\"module_name\":\"ack_callback\"}}}"), 0)
     }
 
     #[test]
     fun test_add_cb_to_memo_except_move() {
         let memo = string::utf8(b"{\"forward\":{\"receiver\":\"chain-c-bech32-address\"},\"wasm\":{}}");
         let memo = add_cb_to_memo(memo, 1, @0x101);
-        assert!(memo == string::utf8(b"{\"forward\":{\"receiver\":\"chain-c-bech32-address\"},\"move\":{\"async_callback\":{\"id\":1,\"module_address\":\"0x0000000000000000000000000000000000000000000000000000000000000101\",\"module_name\":\"ackcallback\"}},\"wasm\":{}}"), 0)
+        assert!(memo == string::utf8(b"{\"forward\":{\"receiver\":\"chain-c-bech32-address\"},\"move\":{\"async_callback\":{\"id\":1,\"module_address\":\"0x0000000000000000000000000000000000000000000000000000000000000101\",\"module_name\":\"ack_callback\"}},\"wasm\":{}}"), 0)
+    }
+
+    #[test(chain=@0x1)]
+    fun test_create_json_msg_initiate_token_deposit(chain: &signer) {
+        primary_fungible_store::init_module_for_test();
+        initialized_coin(chain, string::utf8(b"usdc"));
+        
+        let sender = @0x777105889E6E42F2BED14DD4D7286C9E982A3E31;
+        let bridge_id = 1;
+        let to = string::utf8(b"init1rh03awuuy7t82n4pmtdaa6gj4duneaj8gghkqp");
+        let metadata = coin::denom_to_metadata(string::utf8(b"usdc"));
+        let amount = 1000000000;
+        let data = string::utf8(b"abc");
+        let req = create_json_msg_initiate_token_deposit(sender, bridge_id, to, metadata, amount, data);
+        assert!(req == b"{\"@type\":\"/opinit.ophost.v1.MsgInitiateTokenDeposit\",\"amount\":{\"amount\":\"1000000000\",\"denom\":\"usdc\"},\"bridge_id\":\"1\",\"data\":\"YWJj\",\"sender\":\"init1wacstzy7dep090k3fh2dw2rvn6vz5033un04tm\",\"to\":\"init1rh03awuuy7t82n4pmtdaa6gj4duneaj8gghkqp\"}", 1);
     }
 }

@@ -5,7 +5,7 @@ module skip::initia_dex {
     use std::error;
 
     use initia_std::dex::{Self, Config};
-    use initia_std::decimal128::{Self, Decimal128};
+    use initia_std::bigdecimal::{Self, BigDecimal};
     use initia_std::coin;
     use initia_std::fungible_asset::{Self, Metadata};
     use initia_std::object::{Self, Object};
@@ -18,12 +18,12 @@ module skip::initia_dex {
 
     struct SimulateSwapExactAssetInResponse has copy, drop, store {
         amount_out: u64,
-        spot_price: Option<Decimal128>,
+        spot_price: Option<BigDecimal>,
     }
 
     struct SimulateSwapExactAssetOutResponse has copy, drop, store {
         amount_in: u64,
-        spot_price: Option<Decimal128>,
+        spot_price: Option<BigDecimal>,
     }
 
     public entry fun swap_exact_asset_in(
@@ -70,7 +70,7 @@ module skip::initia_dex {
     }
 
     public fun unpack_simulate_swap_exact_asset_in_response(response: &SimulateSwapExactAssetInResponse)
-    : (u64, Option<Decimal128>) {
+    : (u64, Option<BigDecimal>) {
         (
             response.amount_out,
             response.spot_price,
@@ -78,7 +78,7 @@ module skip::initia_dex {
     }
 
     public fun unpack_simulate_swap_exact_asset_out_response(response: &SimulateSwapExactAssetOutResponse)
-    : (u64, Option<Decimal128>) {
+    : (u64, Option<BigDecimal>) {
         (
             response.amount_in,
             response.spot_price,
@@ -151,22 +151,15 @@ module skip::initia_dex {
     public fun get_spot_price(
         pools: vector<String>,
         coins: vector<String>,
-    ): Decimal128 {
+    ): BigDecimal {
         let swap_length = vector::length<String>(&pools);
         let i = 0;
-        let spot_price = decimal128::one();
-
-        let pools = vector::map(pools, |pool| object::convert(coin::denom_to_metadata(pool)));
-        let coins = vector::map(coins, |coin| coin::denom_to_metadata(coin));
+        let spot_price = bigdecimal::one();
 
         while(i < swap_length) {
-            let pair = vector::borrow<Object<Config>>(&pools, i);
-            let coin_out_metadata = vector::borrow<Object<Metadata>>(&coins, i+1);
-
-            let price128 = dex::get_spot_price(*pair, *coin_out_metadata);
-            let price256 = decimal128::new(decimal128::val(&price128));
-
-            spot_price = decimal128::mul(&spot_price, &price256);
+            let pair = vector::borrow(&pools, i);
+            let coin_in_metadata = vector::borrow(&coins, i);
+            spot_price = bigdecimal::mul(spot_price, dex::get_spot_price_by_denom(*pair, *coin_in_metadata));
             i = i + 1;
         };
         
@@ -217,6 +210,8 @@ module skip::initia_dex {
     use initia_std::string;
     #[test_only]
     use initia_std::primary_fungible_store;
+    #[test_only]
+    use initia_std::biguint;
 
     #[test_only]
     fun initialized_coin(
@@ -240,8 +235,8 @@ module skip::initia_dex {
     fun initialized_module_for_test(
         chain: &signer
     ): (vector<Object<Config>>, vector<Object<Metadata>>) {
-        dex::init_module_for_test(chain);
-        primary_fungible_store::init_module_for_test(chain);
+        dex::init_module_for_test();
+        primary_fungible_store::init_module_for_test();
 
         let chain_addr = signer::address_of(chain);
 
@@ -258,9 +253,9 @@ module skip::initia_dex {
             chain,
             std::string::utf8(b"name"),
             std::string::utf8(b"SYMBOL"),
-            decimal128::from_ratio(3, 1000),
-            decimal128::from_ratio(8, 10),
-            decimal128::from_ratio(2, 10),
+            bigdecimal::from_ratio_u64(3, 1000),
+            bigdecimal::from_ratio_u64(8, 10),
+            bigdecimal::from_ratio_u64(2, 10),
             coin::metadata(chain_addr, string::utf8(b"INIT")),
             coin::metadata(chain_addr, string::utf8(b"USDC")),
             80000000,
@@ -271,6 +266,59 @@ module skip::initia_dex {
         let pair = object::convert<Metadata, Config>(lp_metadata);
 
         (vector[pair], vector[init_metadata, usdc_metadata])
+    }
+
+     #[test_only]
+    fun initialized_module_for_test2(
+        chain: &signer
+    ): (vector<String>, vector<String>) {
+        dex::init_module_for_test();
+        primary_fungible_store::init_module_for_test();
+
+        let chain_addr = signer::address_of(chain);
+
+        let (_, _, initia_mint_cap) = initialized_coin(chain, string::utf8(b"INIT"));
+        let (_, _, usdc_mint_cap) = initialized_coin(chain, string::utf8(b"USDC"));
+        let init_metadata = coin::metadata(chain_addr, string::utf8(b"INIT"));
+        let usdc_metadata = coin::metadata(chain_addr, string::utf8(b"USDC"));
+
+        coin::mint_to(&initia_mint_cap, chain_addr, 100000000);
+        coin::mint_to(&usdc_mint_cap, chain_addr, 100000000);
+
+        dex::create_pair_script(
+            chain,
+            std::string::utf8(b"name"),
+            std::string::utf8(b"SYMBOL"),
+            bigdecimal::from_ratio_u64(3, 1000),
+            bigdecimal::from_ratio_u64(5, 10),
+            bigdecimal::from_ratio_u64(5, 10),
+            coin::metadata(chain_addr, string::utf8(b"INIT")),
+            coin::metadata(chain_addr, string::utf8(b"USDC")),
+            80000000,
+            20000000,
+        );
+
+        let lp_metadata = coin::metadata(chain_addr, string::utf8(b"SYMBOL"));
+
+        (vector[coin::metadata_to_denom(lp_metadata)], vector[coin::metadata_to_denom(usdc_metadata), coin::metadata_to_denom(init_metadata)])
+    }
+
+    #[test(chain = @0x1)]
+    fun test_spot_price(
+        chain:signer
+    ) {
+        let (pools, coins) = initialized_module_for_test2(&chain);
+
+        let spot_price = get_spot_price(pools, coins);
+        assert!(bigdecimal::eq(spot_price, bigdecimal::from_ratio_u64(4, 1)), 0);
+
+        let price = bigdecimal::one();
+        let spot_price = bigdecimal::from_scaled(biguint::from_u128(6117326889893584277078));
+        let price = bigdecimal::mul(price, spot_price);
+        assert!(
+            price == spot_price,
+            0
+        );
     }
 
     #[test(chain = @0x1)]
@@ -302,7 +350,7 @@ module skip::initia_dex {
 
         let diff = before_coin0 - coin::balance(chain_addr, *vector::borrow(&coins, 0));
         assert!( diff >=999 && diff <= 1001, 0);
-        assert!(coin::balance(chain_addr, *vector::borrow(&coins, 1)) == before_coin1 + 996, 1);
+        assert!(coin::balance(chain_addr, *vector::borrow(&coins, 1)) == before_coin1 + 995, 1);
     }
 
     #[test(chain = @0x1)]
@@ -320,7 +368,6 @@ module skip::initia_dex {
     ) {
         let (pools, coins) = initialized_module_for_test(&chain);
         let expected_amount = simulate_swap_exact_asset_out_(996, pools, coins);
-        
         assert!( expected_amount >=999 && expected_amount <= 1001, 0);
     }
 }
