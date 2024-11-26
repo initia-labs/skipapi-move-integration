@@ -178,8 +178,6 @@ module skip::initia_minitswap {
     use std::signer;
     #[test_only]
     use initia_std::bigdecimal;
-    #[test_only]
-    use initia_std::biguint;
 
     #[test_only]
     fun initialized_coin(
@@ -235,11 +233,11 @@ module skip::initia_minitswap {
         minitswap::create_pool(
             chain,
             l2_1_metadata,
-            bigdecimal::from_ratio(biguint::from_u64(100000), biguint::from_u64(1)),
+            bigdecimal::from_ratio_u64(100000, 1),
             10000000,
             3000,
-            bigdecimal::from_ratio(biguint::from_u64(7), biguint::from_u64(10)),
-            bigdecimal::from_ratio(biguint::from_u64(2), biguint::from_u64(1)),
+            bigdecimal::from_ratio_u64(7, 10),
+            bigdecimal::from_ratio_u64(2, 1),
             0,
             string::utf8(b"0x1"),
             1,
@@ -249,11 +247,11 @@ module skip::initia_minitswap {
         minitswap::create_pool(
             chain,
             l2_2_metadata,
-            bigdecimal::from_ratio(biguint::from_u64(100000), biguint::from_u64(1)),
+            bigdecimal::from_ratio_u64(100000, 1),
             10000000,
             3000,
-            bigdecimal::from_ratio(biguint::from_u64(7), biguint::from_u64(10)),
-            bigdecimal::from_ratio(biguint::from_u64(2), biguint::from_u64(1)),
+            bigdecimal::from_ratio_u64(7, 10),
+            bigdecimal::from_ratio_u64(2, 1),
             0,
             string::utf8(b"0x1"),
             2,

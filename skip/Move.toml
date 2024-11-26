@@ -4,10 +4,10 @@ version = "1.0.0"
 authors = []
 
 [addresses]
-skip = ""
+skip = "0x777105889E6E42F2BED14DD4D7286C9E982A3E31"
 initia_std = "0x1"
 std = "0x1"
 
 
 [dependencies]
-InitiaStdlib = { git = "https://github.com/initia-labs/movevm.git", subdir = "crates/../precompile/modules/initia_stdlib", rev = "d4b03a11d83b030b436b0858e9263d50c23a2666" }
+InitiaStdlib = { git = "https://github.com/initia-labs/movevm.git", subdir = "crates/../precompile/modules/initia_stdlib", rev = "v0.6.1" }

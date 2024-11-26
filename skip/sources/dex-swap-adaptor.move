@@ -253,9 +253,9 @@ module skip::initia_dex {
             chain,
             std::string::utf8(b"name"),
             std::string::utf8(b"SYMBOL"),
-            bigdecimal::from_ratio(biguint::from_u64(3), biguint::from_u64(1000)),
-            bigdecimal::from_ratio(biguint::from_u64(8), biguint::from_u64(10)),
-            bigdecimal::from_ratio(biguint::from_u64(2), biguint::from_u64(10)),
+            bigdecimal::from_ratio_u64(3, 1000),
+            bigdecimal::from_ratio_u64(8, 10),
+            bigdecimal::from_ratio_u64(2, 10),
             coin::metadata(chain_addr, string::utf8(b"INIT")),
             coin::metadata(chain_addr, string::utf8(b"USDC")),
             80000000,
@@ -289,9 +289,9 @@ module skip::initia_dex {
             chain,
             std::string::utf8(b"name"),
             std::string::utf8(b"SYMBOL"),
-            bigdecimal::from_ratio(biguint::from_u64(3), biguint::from_u64(1000)),
-            bigdecimal::from_ratio(biguint::from_u64(5), biguint::from_u64(10)),
-            bigdecimal::from_ratio(biguint::from_u64(5), biguint::from_u64(10)),
+            bigdecimal::from_ratio_u64(3, 1000),
+            bigdecimal::from_ratio_u64(5, 10),
+            bigdecimal::from_ratio_u64(5, 10),
             coin::metadata(chain_addr, string::utf8(b"INIT")),
             coin::metadata(chain_addr, string::utf8(b"USDC")),
             80000000,
@@ -310,7 +310,7 @@ module skip::initia_dex {
         let (pools, coins) = initialized_module_for_test2(&chain);
 
         let spot_price = get_spot_price(pools, coins);
-        assert!(bigdecimal::eq(spot_price, bigdecimal::from_ratio(biguint::from_u64(4), biguint::from_u64(1))), 0);
+        assert!(bigdecimal::eq(spot_price, bigdecimal::from_ratio_u64(4, 1)), 0);
 
         let price = bigdecimal::one();
         let spot_price = bigdecimal::from_scaled(biguint::from_u128(6117326889893584277078));

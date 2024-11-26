@@ -306,24 +306,25 @@ module skip::entry_point {
                 to,
                 data
             ) = unpack_action_opbridge_args(post_action_args);
-            initiate_token_deposit(account, bridge_id, to, coin_out, amount_out, data);
+            let req = create_json_msg_initiate_token_deposit(signer::address_of(account), bridge_id, to, coin_out, amount_out, data);
+            cosmos::stargate(account, req);
         } else {
             abort error::invalid_argument(EINVALID_POST_ACTION)
         }
     }
 
-    fun initiate_token_deposit(
-        sender: &signer,
+    fun create_json_msg_initiate_token_deposit(
+        sender: address,
         bridge_id: u64,
         to: String,
         metadata: Object<Metadata>,
         amount: u64,
         data: String
-    ) {
-        let req = json::marshal(
+    ): vector<u8> {
+        json::marshal(
             &InitiateTokenDepositObject{
                 _type_: string::utf8(b"/opinit.ophost.v1.MsgInitiateTokenDeposit"),
-                sender: address::to_string(signer::address_of(sender)),
+                sender: address::to_sdk(sender),
                 bridge_id: string_utils::to_string(&bridge_id),
                 to: to,
                 data: base64::to_string(*string::bytes(&data)),
@@ -332,8 +333,7 @@ module skip::entry_point {
                     amount: string_utils::to_string(&amount),
                 }),
             }
-        );
-        cosmos::stargate(sender, req);
+        )
     }
 
     fun add_cb_to_memo(memo: String, callback_id: u64, module_address: address): String {
@@ -362,7 +362,7 @@ module skip::entry_point {
         json::set_elem(&mut move_obj, string::utf8(b"async_callback"), &cb_obj);
         json::set_elem(&mut obj, string::utf8(b"move"), &move_obj);
 
-        string::utf8(json::marshal(&obj))
+        json::marshal_to_string(&obj)
     }
     
     fun unpack_action_transfer_args(action_args: vector<vector<u8>>): address {
@@ -503,7 +503,6 @@ module skip::entry_point {
         assert!(to == b, 2);
         assert!(data == c, 3);
     }
-
     //
     // View Functions
     //
@@ -718,5 +717,20 @@ module skip::entry_point {
         let memo = string::utf8(b"{\"forward\":{\"receiver\":\"chain-c-bech32-address\"},\"wasm\":{}}");
         let memo = add_cb_to_memo(memo, 1, @0x101);
         assert!(memo == string::utf8(b"{\"forward\":{\"receiver\":\"chain-c-bech32-address\"},\"move\":{\"async_callback\":{\"id\":1,\"module_address\":\"0x0000000000000000000000000000000000000000000000000000000000000101\",\"module_name\":\"ack_callback\"}},\"wasm\":{}}"), 0)
+    }
+
+    #[test(chain=@0x1)]
+    fun test_create_json_msg_initiate_token_deposit(chain: &signer) {
+        primary_fungible_store::init_module_for_test();
+        initialized_coin(chain, string::utf8(b"usdc"));
+        
+        let sender = @0x777105889E6E42F2BED14DD4D7286C9E982A3E31;
+        let bridge_id = 1;
+        let to = string::utf8(b"init1rh03awuuy7t82n4pmtdaa6gj4duneaj8gghkqp");
+        let metadata = coin::denom_to_metadata(string::utf8(b"usdc"));
+        let amount = 1000000000;
+        let data = string::utf8(b"abc");
+        let req = create_json_msg_initiate_token_deposit(sender, bridge_id, to, metadata, amount, data);
+        assert!(req == b"{\"@type\":\"/opinit.ophost.v1.MsgInitiateTokenDeposit\",\"amount\":{\"amount\":\"1000000000\",\"denom\":\"usdc\"},\"bridge_id\":\"1\",\"data\":\"YWJj\",\"sender\":\"init1wacstzy7dep090k3fh2dw2rvn6vz5033un04tm\",\"to\":\"init1rh03awuuy7t82n4pmtdaa6gj4duneaj8gghkqp\"}", 1);
     }
 }

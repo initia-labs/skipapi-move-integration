@@ -220,8 +220,6 @@ module skip::initia_stableswap {
     use initia_std::string;
     #[test_only]
     use initia_std::primary_fungible_store;
-    #[test_only]
-    use initia_std::biguint;
 
     #[test_only]
     fun initialized_coin(
@@ -258,7 +256,7 @@ module skip::initia_stableswap {
         stableswap::create_pool_script(
             chain, string::utf8(b"lp"),
             string::utf8(b"lp"),
-            bigdecimal::from_ratio(biguint::from_u64(5),biguint::from_u64(10000)),
+            bigdecimal::from_ratio_u64(5,10000),
             vector[metadata_a, metadata_b],
             vector[150000000, 150000000],
             6000
