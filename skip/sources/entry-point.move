@@ -250,6 +250,26 @@ module skip::entry_point {
         }
     }
 
+    public entry fun action(
+        account: &signer,
+        amount_out: u64, 
+        coin_out: String,
+        post_action: u8,
+        timeout_timestamp: u64,
+        recover_address: String,
+        post_action_args: vector<vector<u8>>,
+    ) {
+        post_action_(
+            account,
+            coin::denom_to_metadata(coin_out),
+            amount_out,
+            post_action,
+            timeout_timestamp,
+            recover_address,
+            post_action_args,
+        );
+    }
+
     fun post_action_(
         account: &signer,
         coin_out: Object<Metadata>,
