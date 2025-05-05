@@ -339,7 +339,7 @@ module skip::entry_point {
         to: String,
         metadata: Object<Metadata>,
         amount: u64,
-        data: String
+        data: vector<u8>
     ): vector<u8> {
         json::marshal(
             &InitiateTokenDepositObject{
@@ -347,7 +347,7 @@ module skip::entry_point {
                 sender: address::to_sdk(sender),
                 bridge_id: string_utils::to_string(&bridge_id),
                 to: to,
-                data: base64::to_string(*string::bytes(&data)),
+                data: base64::to_string(data),
                 amount: option::some(AmountObject{
                     denom: coin::metadata_to_denom(metadata),
                     amount: string_utils::to_string(&amount),
@@ -430,10 +430,10 @@ module skip::entry_point {
         )
     }
 
-    fun unpack_action_opbridge_args(action_args: vector<vector<u8>>): (u64, String, String) {
+    fun unpack_action_opbridge_args(action_args: vector<vector<u8>>): (u64, String, vector<u8>) {
         assert!(vector::length(&action_args) == 3, error::invalid_argument(0));
         let arg = vector::pop_back(&mut action_args);
-        let data = from_bcs::to_string(arg);
+        let data = from_bcs::to_bytes(arg);
         let arg = vector::pop_back(&mut action_args);
         let to = from_bcs::to_string(arg);
         let arg = vector::pop_back(&mut action_args);
@@ -480,7 +480,7 @@ module skip::entry_point {
     }
 
     #[view]
-    fun pack_action_opbridge_args(bridge_id: u64, to: String, data: String): vector<vector<u8>> {
+    fun pack_action_opbridge_args(bridge_id: u64, to: String, data: vector<u8>): vector<vector<u8>> {
         let action_args = vector<vector<u8>>[];
         vector::push_back(&mut action_args, bcs::to_bytes(&bridge_id));
         vector::push_back(&mut action_args, bcs::to_bytes(&to));
@@ -515,7 +515,7 @@ module skip::entry_point {
     public fun pack_unpack_action_opbridge_args() {
         let bridge_id = 1;
         let to = string::utf8(b"init1rh03awuuy7t82n4pmtdaa6gj4duneaj8gghkqp");
-        let data = string::utf8(b"abc");
+        let data = b"abc";
 
         let packed_args = pack_action_opbridge_args(bridge_id, to, data);
         let (a, b, c) = unpack_action_opbridge_args(packed_args);
@@ -736,7 +736,7 @@ module skip::entry_point {
     fun test_add_cb_to_memo_except_move() {
         let memo = string::utf8(b"{\"forward\":{\"receiver\":\"chain-c-bech32-address\"},\"wasm\":{}}");
         let memo = add_cb_to_memo(memo, 1, @0x101);
-        assert!(memo == string::utf8(b"{\"forward\":{\"receiver\":\"chain-c-bech32-address\"},\"move\":{\"async_callback\":{\"id\":1,\"module_address\":\"0x0000000000000000000000000000000000000000000000000000000000000101\",\"module_name\":\"ack_callback\"}},\"wasm\":{}}"), 0)
+        assert!(memo == string::utf8(b"{\"forward\":{\"receiver\":\"chain-c-bech32-address\"},\"wasm\":{},\"move\":{\"async_callback\":{\"id\":1,\"module_address\":\"0x0000000000000000000000000000000000000000000000000000000000000101\",\"module_name\":\"ack_callback\"}}}"), 0)
     }
 
     #[test(chain=@0x1)]
@@ -749,8 +749,8 @@ module skip::entry_point {
         let to = string::utf8(b"init1rh03awuuy7t82n4pmtdaa6gj4duneaj8gghkqp");
         let metadata = coin::denom_to_metadata(string::utf8(b"usdc"));
         let amount = 1000000000;
-        let data = string::utf8(b"abc");
+        let data = b"abc";
         let req = create_json_msg_initiate_token_deposit(sender, bridge_id, to, metadata, amount, data);
-        assert!(req == b"{\"@type\":\"/opinit.ophost.v1.MsgInitiateTokenDeposit\",\"amount\":{\"amount\":\"1000000000\",\"denom\":\"usdc\"},\"bridge_id\":\"1\",\"data\":\"YWJj\",\"sender\":\"init1wacstzy7dep090k3fh2dw2rvn6vz5033un04tm\",\"to\":\"init1rh03awuuy7t82n4pmtdaa6gj4duneaj8gghkqp\"}", 1);
+        assert!(req == b"{\"@type\":\"/opinit.ophost.v1.MsgInitiateTokenDeposit\",\"sender\":\"init1wacstzy7dep090k3fh2dw2rvn6vz5033un04tm\",\"bridge_id\":\"1\",\"to\":\"init1rh03awuuy7t82n4pmtdaa6gj4duneaj8gghkqp\",\"data\":\"YWJj\",\"amount\":{\"denom\":\"usdc\",\"amount\":\"1000000000\"}}", 1);
     }
 }
