@@ -225,7 +225,7 @@ module skip::entry_point {
 
         // Execute swap and action with callback
         let fid = address::to_string(@skip);
-        string::append_utf8(&mut fid, b"ack_callback::recover");
+        string::append_utf8(&mut fid, b"::ack_callback::recover");
         cosmos::stargate_with_options(
             account,
             json::marshal(&swap_and_action_msg),
