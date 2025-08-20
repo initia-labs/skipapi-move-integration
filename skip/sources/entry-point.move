@@ -214,7 +214,13 @@ module skip::entry_point {
         // Store recover address
         let coin_in: Object<Metadata> =
             coin::denom_to_metadata(*vector::borrow(vector::borrow(&coins, 0), 0));
-        let amount = coin::balance(addr, coin_in);
+        let amount =
+            if (function == SWAP_FUNCTION_SWAP_EXACT_ASSET_IN) {
+                amount_in
+            } else {
+                coin::balance(addr, coin_in)
+            };
+
         let callback_id =
             ack_callback::store_recover_address(
                 account,

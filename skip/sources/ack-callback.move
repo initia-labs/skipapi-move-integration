@@ -53,7 +53,8 @@ module skip::ack_callback {
             move_to<AckStore>(
                 account,
                 AckStore {
-                    current_id: 0,
+                    // cosmos callback id do not allow id 0
+                    current_id: 1,
                     acks: simple_map::create<u64, RecoverInfo>()
                 }
             );
