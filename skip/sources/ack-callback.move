@@ -80,13 +80,7 @@ module skip::ack_callback {
         callback_id: u64,
         is_success: bool,
     ) acquires AckStore {
-        let account_address = signer::address_of(account);
-        let ack_store = borrow_global_mut<AckStore>(account_address);
-        let (_, recover_info) = simple_map::remove(&mut ack_store.acks, &callback_id);
-
-        if(!is_success) {
-            coin::transfer(account, recover_info.recover_address, recover_info.coin_metadata, recover_info.coin_amount);
-        };
+        let recover_info = recover(account, callback_id, is_success);
         event::emit<AckCallback>(
             AckCallback {
                 callback_id,
@@ -102,11 +96,7 @@ module skip::ack_callback {
         account: &signer,
         callback_id: u64,
     ) acquires AckStore {
-        let account_address = signer::address_of(account);
-        let ack_store = borrow_global_mut<AckStore>(account_address);
-        let (_, recover_info) = simple_map::remove(&mut ack_store.acks, &callback_id);
-
-        coin::transfer(account, recover_info.recover_address, recover_info.coin_metadata, recover_info.coin_amount);
+        let recover_info = recover(account, callback_id, false);
         event::emit<TimeoutCallback>(
             TimeoutCallback {
                 callback_id,
@@ -115,5 +105,21 @@ module skip::ack_callback {
                 moved_amount: recover_info.coin_amount,
             }
         );
+    }
+
+    public entry fun recover(
+        account: &signer,
+        callback_id: u64,
+        is_success: bool,
+    ): RecoverInfo acquires AckStore {
+        let account_address = signer::address_of(account);
+        let ack_store = borrow_global_mut<AckStore>(account_address);
+        let (_, recover_info) = simple_map::remove(&mut ack_store.acks, &callback_id);
+
+        if(!is_success) {
+            coin::transfer(account, recover_info.recover_address, recover_info.coin_metadata, recover_info.coin_amount);
+        };
+
+        recover_info
     }
 }

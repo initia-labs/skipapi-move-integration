@@ -52,6 +52,16 @@ module skip::entry_point {
         module_name: String,
     }
 
+    struct MsgExecute has copy, drop {
+        _type_: String, // initia.move.v1.MsgExecute
+        sender: String,
+        module_address: address,
+        module_name: String,
+        function_name: String,
+        type_args: vector<String>,
+        args: vector<String>, // base64 encoded
+    }
+
     const INITIA_DEX: u8 = 0;
     const INITIA_STABLESWAP: u8 = 1;
     const INITIA_MINITSWAP: u8 = 2;
@@ -155,6 +165,67 @@ module skip::entry_point {
             timeout_timestamp,
             recover_address,
             post_action_args,
+        );
+    }
+
+    /// SwapAndActionWithRecover is an entry function for swapping and performing post actions
+    /// with failure handling and automatic recovery.
+    ///
+    /// If the underlying `swap_and_action` execution fails, the function ensures that
+    /// the initial asset is returned to the specified `recover_address`.
+    public entry fun swap_and_action_with_recover(
+        account: &signer,
+        venues: vector<u8>,
+        function: u8,
+        // this is used as max_offer_amount in swap_exact_asset_out
+        amount_in: u64, 
+        // this is used as min_amount in swap_exact_asset_in
+        amount_out: u64, 
+        pools: vector<vector<String>>,
+        coins: vector<vector<String>>,
+
+        post_action: u8,
+        timeout_timestamp: u64,
+        recover_address: String,
+        post_action_args: vector<vector<u8>>,
+    ) {
+        let addr = signer::address_of(account);
+        // Create swap and action message
+        let swap_and_action_msg = MsgExecute {
+            _type_: string::utf8(b"/initia.move.v1.MsgExecute"),
+            sender: address::to_sdk(addr),
+            module_address: @skip,
+            module_name: string::utf8(b"entry_point"),
+            function_name: string::utf8(b"swap_and_action"),
+            type_args: vector[],
+            args: vector[
+                encode_bcs_base64(venues),
+                encode_bcs_base64(function),
+                encode_bcs_base64(amount_in),
+                encode_bcs_base64(amount_out),
+                encode_bcs_base64(pools),
+                encode_bcs_base64(coins),
+                encode_bcs_base64(post_action),
+                encode_bcs_base64(timeout_timestamp),
+                encode_bcs_base64(recover_address),
+                encode_bcs_base64(post_action_args),
+            ]
+        };
+
+        // Store recover address
+        let coin_in: Object<Metadata> = coin::denom_to_metadata(*vector::borrow(vector::borrow(&coins, 0), 0));
+        let amount = coin::balance(addr, coin_in);
+        let callback_id = ack_callback::store_recover_address(account, address::from_sdk(recover_address), amount, coin_in);
+
+        // Execute swap and action with callback
+        let fid = address::to_string(@skip);
+        string::append_utf8(&mut fid, b"ack_callback::recover");
+        cosmos::stargate_with_options(
+            account,
+            json::marshal(&swap_and_action_msg),
+            cosmos::allow_failure_with_callback(
+                callback_id, fid
+            )
         );
     }
 
@@ -444,6 +515,11 @@ module skip::entry_point {
             to,
             data,
         )
+    }
+
+    fun encode_bcs_base64<T: drop>(value: T): String {
+        let bcs_bytes = bcs::to_bytes(&value);
+        return base64::to_string(bcs_bytes)
     }
 
     //
