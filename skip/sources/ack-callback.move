@@ -75,11 +75,9 @@ module skip::ack_callback {
     }
 
     public entry fun ibc_ack(
-        account: &signer,
-        callback_id: u64,
-        is_success: bool
+        account: &signer, callback_id: u64, is_success: bool
     ) acquires AckStore {
-        let recover_info = recover(account, callback_id, is_success);
+        let recover_info = recover_internal(account, callback_id, is_success);
         event::emit<AckCallback>(
             AckCallback {
                 callback_id,
@@ -92,7 +90,7 @@ module skip::ack_callback {
     }
 
     public entry fun ibc_timeout(account: &signer, callback_id: u64) acquires AckStore {
-        let recover_info = recover(account, callback_id, false);
+        let recover_info = recover_internal(account, callback_id, false);
         event::emit<TimeoutCallback>(
             TimeoutCallback {
                 callback_id,
@@ -104,9 +102,13 @@ module skip::ack_callback {
     }
 
     public entry fun recover(
-        account: &signer,
-        callback_id: u64,
-        is_success: bool
+        account: &signer, callback_id: u64, is_success: bool
+    ) acquires AckStore {
+        recover_internal(account, callback_id, is_success);
+    }
+
+    fun recover_internal(
+        account: &signer, callback_id: u64, is_success: bool
     ): RecoverInfo acquires AckStore {
         let account_address = signer::address_of(account);
         let ack_store = borrow_global_mut<AckStore>(account_address);
