@@ -173,6 +173,7 @@ module skip::entry_point {
     ///
     /// If the underlying `swap_and_action` execution fails, the function ensures that
     /// the initial asset is returned to the specified `recover_address`.
+    /// Only support swap_exact_asset_in
     public entry fun swap_and_action_with_recover(
         account: &signer,
         venues: vector<u8>,
@@ -211,21 +212,21 @@ module skip::entry_point {
             ]
         };
 
+        // Only support `swap_exact_asset_in`
+        assert!(
+            function == SWAP_FUNCTION_SWAP_EXACT_ASSET_IN,
+            error::invalid_argument(EINVALID_ARGUMENTS)
+        );
+
         // Store recover address
         let coin_in: Object<Metadata> =
             coin::denom_to_metadata(*vector::borrow(vector::borrow(&coins, 0), 0));
-        let amount =
-            if (function == SWAP_FUNCTION_SWAP_EXACT_ASSET_IN) {
-                amount_in
-            } else {
-                coin::balance(addr, coin_in)
-            };
 
         let callback_id =
             ack_callback::store_recover_address(
                 account,
                 address::from_sdk(recover_address),
-                amount,
+                amount_in,
                 coin_in
             );
 
