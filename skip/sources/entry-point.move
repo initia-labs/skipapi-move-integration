@@ -86,6 +86,7 @@ module skip::entry_point {
     const POST_ACTION_IBCTRANSFER: u8 = 1;
     const POST_ACTION_CONTRACT: u8 = 2;
     const POST_ACTION_OPBRIDGE: u8 = 3;
+    const POST_ACTION_OFT_SEND_WITHDRAW: u8 = 4;
 
     //
     // Entry Functions
@@ -418,6 +419,39 @@ module skip::entry_point {
                     data
                 );
             cosmos::stargate(account, req);
+        } else if (post_action == POST_ACTION_OFT_SEND_WITHDRAW) {
+            let (
+                module_address,
+                dsc_eid,
+                to,
+                min_amount_ld,
+                extra_options,
+                compose_message,
+                oft_cmd,
+                native_fee,
+                zro_fee
+            ) = unpack_action_oft_send_withdraw_args(post_action_args);
+
+            let args =
+                pack_lz_args(
+                    dsc_eid,
+                    to,
+                    amount_out,
+                    min_amount_ld,
+                    extra_options,
+                    compose_message,
+                    oft_cmd,
+                    native_fee,
+                    zro_fee
+                );
+            cosmos::move_execute(
+                account,
+                module_address,
+                string::utf8(b"oft"),
+                string::utf8(b"send_withdraw"),
+                vector[],
+                args
+            );
         } else {
             abort error::invalid_argument(EINVALID_POST_ACTION)
         }
@@ -534,6 +568,41 @@ module skip::entry_point {
         (bridge_id, to, data)
     }
 
+    fun unpack_action_oft_send_withdraw_args(
+        action_args: vector<vector<u8>>
+    ): (address, u32, vector<u8>, u64, vector<u8>, vector<u8>, vector<u8>, u64, u64) {
+        assert!(vector::length(&action_args) == 9, error::invalid_argument(0));
+        let arg = vector::pop_back(&mut action_args);
+        let zro_fee = from_bcs::to_u64(arg);
+        let arg = vector::pop_back(&mut action_args);
+        let native_fee = from_bcs::to_u64(arg);
+        let arg = vector::pop_back(&mut action_args);
+        let oft_cmd = from_bcs::to_bytes(arg);
+        let arg = vector::pop_back(&mut action_args);
+        let compose_message = from_bcs::to_bytes(arg);
+        let arg = vector::pop_back(&mut action_args);
+        let extra_options = from_bcs::to_bytes(arg);
+        let arg = vector::pop_back(&mut action_args);
+        let min_amount_ld = from_bcs::to_u64(arg);
+        let arg = vector::pop_back(&mut action_args);
+        let to = from_bcs::to_bytes(arg);
+        let arg = vector::pop_back(&mut action_args);
+        let dsc_eid = from_bcs::to_u32(arg);
+        let arg = vector::pop_back(&mut action_args);
+        let module_address = from_bcs::to_address(arg);
+        (
+            module_address,
+            dsc_eid,
+            to,
+            min_amount_ld,
+            extra_options,
+            compose_message,
+            oft_cmd,
+            native_fee,
+            zro_fee
+        )
+    }
+
     fun encode_bcs_base64<T: drop>(value: T): String {
         let bcs_bytes = bcs::to_bytes(&value);
         return base64::to_string(bcs_bytes)
@@ -591,6 +660,56 @@ module skip::entry_point {
         action_args
     }
 
+    #[view]
+    fun pack_action_oft_send_withdraw_args(
+        module_address: address,
+        dsc_eid: u32,
+        to: vector<u8>,
+        min_amount_ld: u64,
+        extra_options: vector<u8>,
+        compose_message: vector<u8>,
+        oft_cmd: vector<u8>,
+        native_fee: u64,
+        zro_fee: u64
+    ): vector<vector<u8>> {
+        let action_args = vector<vector<u8>>[];
+        vector::push_back(&mut action_args, bcs::to_bytes(&module_address));
+        vector::push_back(&mut action_args, bcs::to_bytes(&dsc_eid));
+        vector::push_back(&mut action_args, bcs::to_bytes(&to));
+        vector::push_back(&mut action_args, bcs::to_bytes(&min_amount_ld));
+        vector::push_back(&mut action_args, bcs::to_bytes(&extra_options));
+        vector::push_back(&mut action_args, bcs::to_bytes(&compose_message));
+        vector::push_back(&mut action_args, bcs::to_bytes(&oft_cmd));
+        vector::push_back(&mut action_args, bcs::to_bytes(&native_fee));
+        vector::push_back(&mut action_args, bcs::to_bytes(&zro_fee));
+        action_args
+    }
+
+    #[view]
+    fun pack_lz_args(
+        dsc_eid: u32,
+        to: vector<u8>,
+        amount_ld: u64,
+        min_amount_ld: u64,
+        extra_options: vector<u8>,
+        compose_message: vector<u8>,
+        oft_cmd: vector<u8>,
+        native_fee: u64,
+        zro_fee: u64
+    ): vector<vector<u8>> {
+        let action_args = vector<vector<u8>>[];
+        vector::push_back(&mut action_args, bcs::to_bytes(&dsc_eid));
+        vector::push_back(&mut action_args, bcs::to_bytes(&to));
+        vector::push_back(&mut action_args, bcs::to_bytes(&amount_ld));
+        vector::push_back(&mut action_args, bcs::to_bytes(&min_amount_ld));
+        vector::push_back(&mut action_args, bcs::to_bytes(&extra_options));
+        vector::push_back(&mut action_args, bcs::to_bytes(&compose_message));
+        vector::push_back(&mut action_args, bcs::to_bytes(&oft_cmd));
+        vector::push_back(&mut action_args, bcs::to_bytes(&native_fee));
+        vector::push_back(&mut action_args, bcs::to_bytes(&zro_fee));
+        action_args
+    }
+
     #[test]
     public fun pack_unpack_action_transfer_args() {
         let addr = @0x1DDF1EBB9C2796754EA1DADBDEE912AB793CF647;
@@ -625,6 +744,49 @@ module skip::entry_point {
         assert!(bridge_id == a, 1);
         assert!(to == b, 2);
         assert!(data == c, 3);
+    }
+
+    #[test]
+    public fun pack_unpack_action_lz_args() {
+        let module_address =
+            @0x7087CA9D16503341D908C05269AB768A94131219985C7AF555F9AAF72BF3E326;
+        let dsc_eid = 40102;
+        let to: vector<u8> = vector[
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x8a,
+            0x3d, 0xa5, 0xf6, 0xf8, 0xf5, 0xb6, 0xa9, 0xd4, 0xff, 0x5b, 0x5f, 0xa9, 0x33,
+            0x9a, 0xb6, 0xe8, 0x25, 0xe5, 0x69
+        ];
+        let min_amount_ld = 1;
+        let extra_options = b"";
+        let compose_message = b"";
+        let oft_cmd = b"";
+        let native_fee = 1456801;
+        let zro_fee = 0;
+
+        let packed_args =
+            pack_action_oft_send_withdraw_args(
+                module_address,
+                dsc_eid,
+                to,
+                min_amount_ld,
+                extra_options,
+                compose_message,
+                oft_cmd,
+                native_fee,
+                zro_fee
+            );
+        let (a, b, c, d, e, f, g, h, i) =
+            unpack_action_oft_send_withdraw_args(packed_args);
+
+        assert!(module_address == a, 1);
+        assert!(dsc_eid == b, 2);
+        assert!(to == c, 3);
+        assert!(min_amount_ld == d, 4);
+        assert!(extra_options == e, 5);
+        assert!(compose_message == f, 6);
+        assert!(oft_cmd == g, 7);
+        assert!(native_fee == h, 8);
+        assert!(zro_fee == i, 9);
     }
 
     //
