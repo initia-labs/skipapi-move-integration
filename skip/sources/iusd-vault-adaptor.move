@@ -30,12 +30,13 @@ module skip::iusd_vault {
         amount: u64,
         _pools: vector<Object<Metadata>>,
         coins: vector<Object<Metadata>>,
-        _min_amount: u64
+        min_amount: u64
     ) {
         assert!(
             vector::length(&coins) == 2,
             error::invalid_state(EINVALID_ARGUMENTS)
         );
+        assert!(amount >= min_amount, error::invalid_state(EMIN_AMOUNT));
 
         let coin_in_metadata = *vector::borrow<Object<Metadata>>(&coins, 0);
         let coin_out_metadata = *vector::borrow<Object<Metadata>>(&coins, 1);
@@ -55,8 +56,10 @@ module skip::iusd_vault {
         amount: u64,
         pools: vector<Object<Metadata>>,
         coins: vector<Object<Metadata>>,
-        _max_offer_amount: u64
+        max_offer_amount: u64
     ) {
+        assert!(amount <= max_offer_amount, error::invalid_state(EMAX_OFFER_AMOUNT));
+
         swap_exact_asset_in(account, amount, pools, coins, amount);
     }
 
