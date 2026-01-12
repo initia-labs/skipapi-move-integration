@@ -91,9 +91,7 @@ module skip::initia_stableswap {
 
     #[view]
     public fun simulate_swap_exact_asset_in(
-        amount: u64,
-        pools: vector<String>,
-        coins: vector<String>
+        amount: u64, pools: vector<String>, coins: vector<String>
     ): u64 {
         let pools = vector::map(
             pools,
@@ -131,9 +129,7 @@ module skip::initia_stableswap {
 
     #[view]
     public fun simulate_swap_exact_asset_out(
-        amount: u64,
-        pools: vector<String>,
-        coins: vector<String>
+        amount: u64, pools: vector<String>, coins: vector<String>
     ): u64 {
         let pools = vector::map(
             pools,

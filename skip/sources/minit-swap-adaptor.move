@@ -81,9 +81,7 @@ module skip::initia_minitswap {
 
     #[view]
     public fun simulate_swap_exact_asset_in(
-        amount: u64,
-        _pools: vector<String>,
-        coins: vector<String>
+        amount: u64, _pools: vector<String>, coins: vector<String>
     ): u64 {
         assert!(vector::length(&coins) == 2, error::invalid_state(EINVALID_ARGUMENTS));
         let coins = vector::map(coins, |coin| coin::denom_to_metadata(coin));
@@ -106,9 +104,7 @@ module skip::initia_minitswap {
 
     #[view]
     public fun simulate_swap_exact_asset_out(
-        amount: u64,
-        _pools: vector<String>,
-        coins: vector<String>
+        amount: u64, _pools: vector<String>, coins: vector<String>
     ): u64 {
         assert!(vector::length(&coins) == 2, error::invalid_state(EINVALID_ARGUMENTS));
         let coins = vector::map(coins, |coin| coin::denom_to_metadata(coin));
