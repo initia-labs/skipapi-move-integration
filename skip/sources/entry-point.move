@@ -21,6 +21,7 @@ module skip::entry_point {
     use skip::initia_dex;
     use skip::initia_stableswap;
     use skip::initia_minitswap;
+    use skip::iusd_vault;
 
     struct SimulateSwapExactAssetInResponse has drop {
         amount_out: u64,
@@ -65,6 +66,7 @@ module skip::entry_point {
     const INITIA_DEX: u8 = 0;
     const INITIA_STABLESWAP: u8 = 1;
     const INITIA_MINITSWAP: u8 = 2;
+    const IUSD_VAULT: u8 = 3;
 
     const EKEY_ALREADY_EXISTS: u64 = 0;
     const EKEY_NOT_FOUND: u64 = 1;
@@ -337,6 +339,8 @@ module skip::entry_point {
             initia_minitswap::swap_exact_asset_in(
                 account, amount, vector[], coins, min_amount
             )
+        } else if (venue == IUSD_VAULT) {
+            iusd_vault::swap_exact_asset_in(account, amount, vector[], coins, min_amount)
         } else {
             abort error::invalid_argument(EINVALID_SWAP_VENUE)
         }
@@ -829,6 +833,10 @@ module skip::entry_point {
                 amount = initia_minitswap::simulate_swap_exact_asset_in(
                     amount, pools_i, coins_i
                 );
+            } else if (venue == IUSD_VAULT) {
+                amount = iusd_vault::simulate_swap_exact_asset_in(
+                    amount, pools_i, coins_i
+                );
             } else {
                 abort error::invalid_argument(EINVALID_SWAP_VENUE)
             };
@@ -881,6 +889,10 @@ module skip::entry_point {
                 amount = initia_minitswap::simulate_swap_exact_asset_out(
                     amount, pools_i, coins_i
                 );
+            } else if (venue == IUSD_VAULT) {
+                amount = iusd_vault::simulate_swap_exact_asset_out(
+                    amount, pools_i, coins_i
+                );
             } else {
                 abort error::invalid_argument(EINVALID_SWAP_VENUE)
             };
@@ -922,6 +934,8 @@ module skip::entry_point {
                 price = initia_stableswap::get_spot_price(pools_i, coins_i);
             } else if (venue == INITIA_MINITSWAP) {
                 price = initia_minitswap::get_spot_price(pools_i, coins_i);
+            } else if (venue == IUSD_VAULT) {
+                price = iusd_vault::get_spot_price(pools_i, coins_i);
             } else {
                 abort error::invalid_argument(EINVALID_SWAP_VENUE)
             };

@@ -7,9 +7,12 @@ authors = []
 skip = "_"
 initia_std = "0x1"
 std = "0x1"
+vault = "_"
 
 [dev-addresses]
 skip = "0x10"
+vault = "0x11"
 
 [dependencies]
 InitiaStdlib = { git = "https://github.com/initia-labs/move-natives.git", subdir = "initia_stdlib", rev = "v1.0.0-rc.1" }
+iusd_vault = { git = "https://github.com/initia-labs/iUSD-vault.git", rev = "main" }
