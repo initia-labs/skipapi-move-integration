@@ -8,11 +8,24 @@ skip = "_"
 initia_std = "0x1"
 std = "0x1"
 vault = "_"
+dex_clamm = "_"
+dex_clamm_math = "_"
+dex_manager = "_"
+fixed_point64 = "_"
+move_int = "_"
+rate_limiter = "_"
 
 [dev-addresses]
 skip = "0x10"
 vault = "0x11"
+dex_clamm = "0x123456789001"
+dex_clamm_math = "0x123456789004"
+dex_manager = "0x123456789005"
+fixed_point64 = "0x123456789006"
+move_int = "0x123456789007"
+rate_limiter = "0x123456789008"
 
 [dependencies]
 InitiaStdlib = { git = "https://github.com/initia-labs/move-natives.git", subdir = "initia_stdlib", rev = "v1.0.0-rc.1" }
 iusd_vault = { git = "https://github.com/initia-labs/iUSD-vault.git", rev = "main" }
+DexClamm = { git = "https://github.com/initia-labs/dex-clamm.git", subdir = "dex_clamm", rev = "main" }
