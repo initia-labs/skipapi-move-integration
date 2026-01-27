@@ -22,6 +22,7 @@ module skip::entry_point {
     use skip::initia_stableswap;
     use skip::initia_minitswap;
     use skip::iusd_vault;
+    use skip::initia_clamm;
 
     struct SimulateSwapExactAssetInResponse has drop {
         amount_out: u64,
@@ -67,6 +68,7 @@ module skip::entry_point {
     const INITIA_STABLESWAP: u8 = 1;
     const INITIA_MINITSWAP: u8 = 2;
     const IUSD_VAULT: u8 = 3;
+    const INITIA_CLAMM: u8 = 4;
 
     const EKEY_ALREADY_EXISTS: u64 = 0;
     const EKEY_NOT_FOUND: u64 = 1;
@@ -341,6 +343,12 @@ module skip::entry_point {
             )
         } else if (venue == IUSD_VAULT) {
             iusd_vault::swap_exact_asset_in(account, amount, vector[], coins, min_amount)
+        } else if (venue == INITIA_CLAMM) {
+            let pools = vector::map(
+                pools,
+                |pool| object::convert(coin::denom_to_metadata(pool))
+            );
+            initia_clamm::swap_exact_asset_in(account, amount, pools, coins, min_amount)
         } else {
             abort error::invalid_argument(EINVALID_SWAP_VENUE)
         }
@@ -837,6 +845,10 @@ module skip::entry_point {
                 amount = iusd_vault::simulate_swap_exact_asset_in(
                     amount, pools_i, coins_i
                 );
+            } else if (venue == INITIA_CLAMM) {
+                amount = initia_clamm::simulate_swap_exact_asset_in(
+                    amount, pools_i, coins_i
+                );
             } else {
                 abort error::invalid_argument(EINVALID_SWAP_VENUE)
             };
@@ -893,6 +905,10 @@ module skip::entry_point {
                 amount = iusd_vault::simulate_swap_exact_asset_out(
                     amount, pools_i, coins_i
                 );
+            } else if (venue == INITIA_CLAMM) {
+                amount = initia_clamm::simulate_swap_exact_asset_out(
+                    amount, pools_i, coins_i
+                );
             } else {
                 abort error::invalid_argument(EINVALID_SWAP_VENUE)
             };
@@ -936,6 +952,8 @@ module skip::entry_point {
                 price = initia_minitswap::get_spot_price(pools_i, coins_i);
             } else if (venue == IUSD_VAULT) {
                 price = iusd_vault::get_spot_price(pools_i, coins_i);
+            } else if (venue == INITIA_CLAMM) {
+                price = initia_clamm::get_spot_price(pools_i, coins_i);
             } else {
                 abort error::invalid_argument(EINVALID_SWAP_VENUE)
             };

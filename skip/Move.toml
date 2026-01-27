@@ -24,8 +24,9 @@ dex_manager = "0x123456789005"
 fixed_point64 = "0x123456789006"
 move_int = "0x123456789007"
 rate_limiter = "0x123456789008"
+test_utils = "0x123456789009"
 
 [dependencies]
-InitiaStdlib = { git = "https://github.com/initia-labs/move-natives.git", subdir = "initia_stdlib", rev = "v1.0.0-rc.1" }
+InitiaStdlib = { git = "https://github.com/initia-labs/move-natives.git", subdir = "initia_stdlib", rev = "v1.1.0-rc.1" }
 iusd_vault = { git = "https://github.com/initia-labs/iUSD-vault.git", rev = "main" }
-DexClamm = { git = "https://github.com/initia-labs/dex-clamm.git", subdir = "dex_clamm", rev = "main" }
+DexClamm = { git = "https://github.com/initia-labs/dex-clamm.git", subdir = "dex_clamm", rev = "feat/vault" }
