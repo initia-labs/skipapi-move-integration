@@ -213,10 +213,7 @@ module skip::initia_clamm {
         while (i < swap_length) {
             let pool_obj = vector::borrow<Object<Pool>>(&pools, i);
             let coin_in_metadata = vector::borrow<Object<Metadata>>(&coins, i);
-
-            // Get pool metadata to determine zero_for_one direction
-            let (metadata_0, _) = pool::pool_metadata(*pool_obj);
-            let zero_for_one = *coin_in_metadata == metadata_0;
+            let (metadata_0, metadata_1) = pool::pool_metadata(*pool_obj);
 
             // Get sqrt_price (Q64.64 format: sqrt(price) * 2^64)
             let (_, sqrt_price) = pool::tick_sqrt_price(*pool_obj);
@@ -227,10 +224,12 @@ module skip::initia_clamm {
             // For zero_for_one: price of token0 in token1
             // For one_for_zero: inverse (token1 in token0)
             let price =
-                if (zero_for_one) {
-                    bigdecimal::from_ratio_u256(sqrt_price_squared, TWO_POW_128)
+                if (*coin_in_metadata == metadata_0) {
+                    bigdecimal::from_ratio_u256(sqrt_price_squared, TWO_POW_128) // zero_for_one
+                } else if (*coin_in_metadata == metadata_1) {
+                    bigdecimal::from_ratio_u256(TWO_POW_128, sqrt_price_squared) // one_for_zero
                 } else {
-                    bigdecimal::from_ratio_u256(TWO_POW_128, sqrt_price_squared)
+                    abort error::invalid_argument(EINVALID_ARGUMENTS)
                 };
 
             spot_price = bigdecimal::mul(spot_price, price);
