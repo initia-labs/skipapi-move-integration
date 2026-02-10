@@ -22,7 +22,7 @@ module skip::entry_point {
     use skip::initia_stableswap;
     use skip::initia_minitswap;
     use skip::iusd_vault;
-    use skip::initia_clamm;
+    use skip::initia_clamm::{Self, denom_to_address};
 
     struct SimulateSwapExactAssetInResponse has drop {
         amount_out: u64,
@@ -245,31 +245,31 @@ module skip::entry_point {
         );
     }
 
-    /// Flattens a segmented (potentially multi-hop) route into per-hop swap arguments.
+    /// Normalizes segmented swap arguments for routing.
     ///
     /// Background:
-    /// - Skip router (service) does not yet support Initia CLAMM. In practice, CLAMM pools may show
-    ///   up under the `INITIA_DEX` venue. We detect such pools via `is_clamm` and route them to the
-    ///   CLAMM adaptor.
-    /// - Adaptors can execute multi-hop swaps by themselves, but handling mixed pool types (DEX +
-    ///   CLAMM) inside adaptors is complex. To keep the logic simple, the entry point forces all
-    ///   swaps to single-hop here.
+    /// - Skip router may label CLAMM pools as `INITIA_DEX`. We detect such pools via `is_clamm` and
+    ///   route them to the CLAMM adaptor.
+    ///
+    /// Behavior:
+    /// - For `INITIA_DEX` and `INITIA_CLAMM` segments, expands multi-hop segments into single-hop
+    ///   entries so we can detect CLAMM on a per-hop basis.
+    /// - For all other venues, preserves the original segment as-is (may remain multi-hop) and
+    ///   relies on the venue adaptor to validate/execute it.
     ///
     /// Example:
-    /// - pools: [[p1], [p2, p3]]
-    /// - coins: [[c1, c2], [c2, c3, c4]]
-    /// => pools_out: [[p1], [p2], [p3]]
-    /// => coins_out: [[c1, c2], [c2, c3], [c3, c4]]
-    ///
-    /// Output (one hop per index):
-    /// - `venues_out[i]`: venue for hop i (copied from the original segment; may be overridden later)
-    /// - `pools_out[i]`: `vector[pool]` (inner length == 1)
-    /// - `coins_out[i]`: `vector[coin_in, coin_out]` (inner length == 2)
+    /// - venues: [DEX, STABLESWAP]
+    /// - pools:  [[p1, p2], [p3, p4]]
+    /// - coins:  [[c1, c2, c3], [c3, c4, c5]]
+    /// => venues_out: [DEX, DEX, STABLESWAP]
+    /// => pools_out:  [[p1], [p2], [p3, p4]]
+    /// => coins_out:  [[c1, c2], [c2, c3], [c3, c4, c5]]
     ///
     /// Requirements:
     /// - `length(venues) == length(pools) == length(coins)`
-    /// - for each segment `s`: `length(coins[s]) == length(pools[s]) + 1`
     /// - segments are contiguous: `coins[s-1].last == coins[s].first`
+    /// - for `INITIA_DEX` / `INITIA_CLAMM` segments: `length(pools[s]) > 0` and
+    ///   `length(coins[s]) == length(pools[s]) + 1`
     fun to_single_swap_args(
         venues: &vector<u8>,
         pools: &vector<vector<String>>,
@@ -302,6 +302,27 @@ module skip::entry_point {
             let coins_i = vector::borrow(coins, i);
             let venue_i = vector::borrow(venues, i);
 
+            // Ensure segments are contiguous: previous segment's out == this segment's in.
+            if (has_prev_coin_out) {
+                assert!(
+                    prev_coin_out == *vector::borrow(coins_i, 0),
+                    error::invalid_argument(EINVALID_ARGUMENTS)
+                );
+            };
+
+            // Track the last output coin even if we don't expand this segment.
+            prev_coin_out = *vector::borrow(coins_i, vector::length(coins_i) - 1);
+            has_prev_coin_out = true;
+
+            // Only DEX/CLAMM segments are expanded to single-hop; other venues are passed through.
+            if (venue_i != &INITIA_DEX && venue_i != &INITIA_CLAMM) {
+                venues_out.push_back(*venue_i);
+                pools_out.push_back(*pools_i);
+                coins_out.push_back(*coins_i);
+                i = i + 1;
+                continue;
+            };
+
             let hop_length = vector::length(pools_i);
             assert!(
                 hop_length > 0,
@@ -312,13 +333,6 @@ module skip::entry_point {
                 error::invalid_argument(EINVALID_ARGUMENTS)
             );
 
-            // Ensure segments are contiguous: previous segment's out == this segment's in.
-            if (has_prev_coin_out) {
-                assert!(
-                    prev_coin_out == *vector::borrow(coins_i, 0),
-                    error::invalid_argument(EINVALID_ARGUMENTS)
-                );
-            };
 
             // Flatten each hop into a single swap: (venue, [pool], [coin_in, coin_out])
             let j = 0;
@@ -332,9 +346,6 @@ module skip::entry_point {
 
                 j = j + 1;
             };
-
-            prev_coin_out = *vector::borrow(coins_i, vector::length(coins_i) - 1);
-            has_prev_coin_out = true;
 
             i = i + 1;
         };
@@ -363,8 +374,8 @@ module skip::entry_point {
         coins: vector<vector<String>>
     ): (Object<Metadata>, u64) {
 
-        // dev: adaptors support multi-hop, but Skip router doesn't support CLAMM. Normalize to
-        // single-hop so we can detect CLAMM per hop and route to the correct adaptor.
+        // dev: Skip may label CLAMM pools as `INITIA_DEX`. Expand DEX/CLAMM segments to single-hop
+        // so we can detect CLAMM per hop while keeping other venues' multi-hop segments intact.
         let (venues, pools, coins) = to_single_swap_args(&venues, &pools, &coins);
         let venue_length = vector::length(&venues);
 
@@ -423,9 +434,10 @@ module skip::entry_point {
         coins: vector<Object<Metadata>>,
         min_amount: u64
     ) {
-        // Skip router may mark CLAMM pools as INITIA_DEX; detect and override.
-        // Assumes `pools` contains a single pool (normalized by `to_single_swap_args`).
-        if (is_clamm(venue, *vector::borrow(&pools, 0))) {
+        // Skip may mark CLAMM pools as `INITIA_DEX`; detect and override.
+        // After `to_single_swap_args`, DEX/CLAMM segments are single-hop so `pools[0]` identifies
+        // the pool for this hop.
+        if (is_clamm(venue, &pools)) {
             venue = INITIA_CLAMM
         };
 
@@ -726,21 +738,18 @@ module skip::entry_point {
         return base64::to_string(bcs_bytes)
     }
 
-    fun is_clamm(venue: u8, denom: String): bool {
+    // Returns true if this hop should be routed to the CLAMM adaptor.
+    // Skip may label CLAMM pools as `INITIA_DEX`; in that case we detect CLAMM by checking whether
+    // the pool identifier resolves to a non-fungible-asset address. Assumes `pools` is non-empty
+    // when `venue == INITIA_DEX` (DEX segments are single-hop after `to_single_swap_args`).
+    fun is_clamm(venue: u8, pools: &vector<String>): bool {
+        if (venue == INITIA_CLAMM) return true;
+
+        if (venue != INITIA_DEX) return false;
+        let denom = *pools.borrow(0);
+
         let addr = denom_to_address(denom);
-
-        venue == INITIA_DEX && !initia_std::fungible_asset::is_fungible_asset(addr)
-    }
-
-    fun denom_to_address(denom: String): address {
-        if (string::length(&denom) > 5
-            && &b"move/" == string::bytes(&string::sub_string(&denom, 0, 5))) {
-            let len = string::length(&denom);
-            let hex_string = string::sub_string(&denom, 5, len);
-            from_bcs::to_address(initia_std::hex::decode_string(&hex_string))
-        } else {
-            coin::metadata_address(@initia_std, denom)
-        }
+        !initia_std::fungible_asset::is_fungible_asset(addr)
     }
 
     //
@@ -996,13 +1005,12 @@ module skip::entry_point {
         let (venues_out, pools_out, coins_out) =
             to_single_swap_args(&venues, &pools, &coins);
 
-        assert!(vector::length(&venues_out) == 3, 101);
-        assert!(vector::length(&pools_out) == 3, 102);
-        assert!(vector::length(&coins_out) == 3, 103);
+        assert!(vector::length(&venues_out) == 2, 101);
+        assert!(vector::length(&pools_out) == 2, 102);
+        assert!(vector::length(&coins_out) == 2, 103);
 
         assert!(*vector::borrow(&venues_out, 0) == INITIA_DEX, 104);
         assert!(*vector::borrow(&venues_out, 1) == INITIA_STABLESWAP, 105);
-        assert!(*vector::borrow(&venues_out, 2) == INITIA_STABLESWAP, 106);
 
         assert!(
             *vector::borrow(vector::borrow(&pools_out, 0), 0) == string::utf8(b"pool_1"),
@@ -1013,7 +1021,7 @@ module skip::entry_point {
             108
         );
         assert!(
-            *vector::borrow(vector::borrow(&pools_out, 2), 0) == string::utf8(b"pool_3"),
+            *vector::borrow(vector::borrow(&pools_out, 1), 1) == string::utf8(b"pool_3"),
             109
         );
 
@@ -1034,12 +1042,8 @@ module skip::entry_point {
             113
         );
         assert!(
-            *vector::borrow(vector::borrow(&coins_out, 2), 0) == string::utf8(b"coin_3"),
+            *vector::borrow(vector::borrow(&coins_out, 1), 2) == string::utf8(b"coin_4"),
             114
-        );
-        assert!(
-            *vector::borrow(vector::borrow(&coins_out, 2), 1) == string::utf8(b"coin_4"),
-            115
         );
     }
 
@@ -1053,8 +1057,8 @@ module skip::entry_point {
         pools: vector<vector<String>>,
         coins: vector<vector<String>>
     ): u64 {
-        // dev: adaptors support multi-hop, but Skip router doesn't support CLAMM. Normalize to
-        // single-hop so we can detect CLAMM per hop and route to the correct adaptor.
+        // dev: Keep multi-hop segments intact for non-DEX venues, but expand DEX/CLAMM to single-hop
+        // so we can detect mislabeled CLAMM pools per hop.
         let (swap_venues, pools, coins) = to_single_swap_args(
             &swap_venues, &pools, &coins
         );
@@ -1070,7 +1074,7 @@ module skip::entry_point {
             assert!(coin_in == *vector::borrow(&coins_i, 0), EINVALID_ASSET);
 
             // select correct venue (Skip router may mark CLAMM pools as INITIA_DEX)
-            if (is_clamm(venue, *vector::borrow(&pools_i, 0))) {
+            if (is_clamm(venue, &pools_i)) {
                 venue = INITIA_CLAMM
             };
 
@@ -1110,8 +1114,8 @@ module skip::entry_point {
         pools: vector<vector<String>>,
         coins: vector<vector<String>>
     ): u64 {
-        // dev: adaptors support multi-hop, but Skip router doesn't support CLAMM. Normalize to
-        // single-hop so we can detect CLAMM per hop and route to the correct adaptor.
+        // dev: Keep multi-hop segments intact for non-DEX venues, but expand DEX/CLAMM to single-hop
+        // so we can detect mislabeled CLAMM pools per hop.
         let (swap_venues, pools, coins) = to_single_swap_args(
             &swap_venues, &pools, &coins
         );
@@ -1132,7 +1136,7 @@ module skip::entry_point {
             );
 
             // select correct venue (Skip router may mark CLAMM pools as INITIA_DEX)
-            if (is_clamm(venue, *vector::borrow(&pools_i, 0))) {
+            if (is_clamm(venue, &pools_i)) {
                 venue = INITIA_CLAMM
             };
 
@@ -1171,8 +1175,8 @@ module skip::entry_point {
         pools: vector<vector<String>>,
         coins: vector<vector<String>>
     ): BigDecimal {
-        // dev: adaptors support multi-hop, but Skip router doesn't support CLAMM. Normalize to
-        // single-hop so we can detect CLAMM per hop and route to the correct adaptor.
+        // dev: Keep multi-hop segments intact for non-DEX venues, but expand DEX/CLAMM to single-hop
+        // so we can detect mislabeled CLAMM pools per hop.
         let (swap_venues, pools, coins) = to_single_swap_args(
             &swap_venues, &pools, &coins
         );
@@ -1188,7 +1192,7 @@ module skip::entry_point {
             let price: BigDecimal;
 
             // select correct venue (Skip router may mark CLAMM pools as INITIA_DEX)
-            if (is_clamm(venue, *vector::borrow(&pools_i, 0))) {
+            if (is_clamm(venue, &pools_i)) {
                 venue = INITIA_CLAMM
             };
 
