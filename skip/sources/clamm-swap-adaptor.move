@@ -6,7 +6,9 @@ module skip::initia_clamm {
 
     use initia_std::bigdecimal::{Self, BigDecimal};
     use initia_std::coin;
+    use initia_std::from_bcs;
     use initia_std::fungible_asset::{Self, Metadata};
+    use initia_std::hex;
     use initia_std::object::{Self, Object};
     use initia_std::string::{Self, String};
 
@@ -109,7 +111,7 @@ module skip::initia_clamm {
     ): u64 {
         let pools = vector::map(
             pools,
-            |pool| object::convert(coin::denom_to_metadata(pool))
+            |pool| object::address_to_object(denom_to_address(pool))
         );
         let coins = vector::map(coins, |coin| coin::denom_to_metadata(coin));
 
@@ -151,7 +153,7 @@ module skip::initia_clamm {
     ): u64 {
         let pools = vector::map(
             pools,
-            |pool| object::convert(coin::denom_to_metadata(pool))
+            |pool| object::address_to_object(denom_to_address(pool))
         );
         let coins = vector::map(coins, |coin| coin::denom_to_metadata(coin));
 
@@ -193,7 +195,7 @@ module skip::initia_clamm {
     ): BigDecimal {
         let pools: vector<Object<Pool>> = vector::map(
             pools,
-            |pool| object::convert(coin::denom_to_metadata(pool))
+            |pool| object::address_to_object(denom_to_address(pool))
         );
         let coins: vector<Object<Metadata>> = vector::map(
             coins, |coin| coin::denom_to_metadata(coin)
@@ -277,6 +279,17 @@ module skip::initia_clamm {
         };
 
         response
+    }
+
+    public fun denom_to_address(denom: String): address {
+        if (string::length(&denom) > 5
+            && &b"move/" == string::bytes(&string::sub_string(&denom, 0, 5))) {
+            let len = string::length(&denom);
+            let hex_string = string::sub_string(&denom, 5, len);
+            from_bcs::to_address(hex::decode_string(&hex_string))
+        } else {
+            coin::metadata_address(@initia_std, denom)
+        }
     }
 
     fun get_sqrt_price_limit(
