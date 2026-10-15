@@ -32,10 +32,7 @@ module skip::initia_minitswap {
         coins: vector<Object<Metadata>>,
         min_amount: u64
     ) {
-        assert!(
-            vector::length(&coins) == 2,
-            error::invalid_state(EINVALID_ARGUMENTS)
-        );
+        assert!(vector::length(&coins) == 2, error::invalid_state(EINVALID_ARGUMENTS));
 
         let coin_in_metadata = vector::borrow<Object<Metadata>>(&coins, 0);
         let coin_out_metadata = vector::borrow<Object<Metadata>>(&coins, 1);
@@ -55,10 +52,7 @@ module skip::initia_minitswap {
         coins: vector<Object<Metadata>>,
         max_offer_amount: u64
     ) {
-        assert!(
-            vector::length(&coins) == 2,
-            error::invalid_state(EINVALID_ARGUMENTS)
-        );
+        assert!(vector::length(&coins) == 2, error::invalid_state(EINVALID_ARGUMENTS));
 
         let offer_amount = simulate_swap_exact_asset_out_(amount, pools, coins);
         assert!(offer_amount <= max_offer_amount, EMAX_OFFER_AMOUNT);
@@ -178,14 +172,19 @@ module skip::initia_minitswap {
 
     #[test_only]
     use initia_std::string;
+
     #[test_only]
     use initia_std::stableswap;
+
     #[test_only]
     use initia_std::primary_fungible_store;
+
     #[test_only]
     use initia_std::block;
+
     #[test_only]
     use std::signer;
+
     #[test_only]
     use initia_std::bigdecimal;
 

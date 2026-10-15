@@ -7,6 +7,7 @@ module skip::ack_callback {
     use initia_std::signer;
 
     friend skip::entry_point;
+
     struct AckStore has key {
         current_id: u64,
         acks: SimpleMap<u64, RecoverInfo>

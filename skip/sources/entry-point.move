@@ -276,10 +276,7 @@ module skip::entry_point {
         coins: &vector<vector<String>>
     ): (vector<u8>, vector<vector<String>>, vector<vector<String>>) {
         let segment_length = vector::length(pools);
-        assert!(
-            segment_length > 0,
-            error::invalid_argument(EINVALID_ARGUMENTS)
-        );
+        assert!(segment_length > 0, error::invalid_argument(EINVALID_ARGUMENTS));
         assert!(
             vector::length(coins) == segment_length,
             error::invalid_argument(EINVALID_ARGUMENTS)
@@ -324,15 +321,11 @@ module skip::entry_point {
             };
 
             let hop_length = vector::length(pools_i);
-            assert!(
-                hop_length > 0,
-                error::invalid_argument(EINVALID_ARGUMENTS)
-            );
+            assert!(hop_length > 0, error::invalid_argument(EINVALID_ARGUMENTS));
             assert!(
                 vector::length(coins_i) == hop_length + 1,
                 error::invalid_argument(EINVALID_ARGUMENTS)
             );
-
 
             // Flatten each hop into a single swap: (venue, [pool], [coin_in, coin_out])
             let j = 0;
@@ -453,11 +446,19 @@ module skip::entry_point {
                 |pool| object::convert(coin::denom_to_metadata(pool))
             );
             initia_stableswap::swap_exact_asset_in(
-                account, amount, pools, coins, min_amount
+                account,
+                amount,
+                pools,
+                coins,
+                min_amount
             )
         } else if (venue == INITIA_MINITSWAP) {
             initia_minitswap::swap_exact_asset_in(
-                account, amount, vector[], coins, min_amount
+                account,
+                amount,
+                vector[],
+                coins,
+                min_amount
             )
         } else if (venue == IUSD_VAULT) {
             iusd_vault::swap_exact_asset_in(account, amount, vector[], coins, min_amount)
@@ -508,7 +509,10 @@ module skip::entry_point {
             let recover_address = address::from_sdk(recover_address);
             let callback_id =
                 ack_callback::store_recover_address(
-                    account, recover_address, amount_out, coin_out
+                    account,
+                    recover_address,
+                    amount_out,
+                    coin_out
                 );
             let (source_channel, receiver, memo) =
                 unpack_action_ibctransfer_args(post_action_args);
@@ -527,8 +531,9 @@ module skip::entry_point {
                 memo
             );
         } else if (post_action == POST_ACTION_CONTRACT) {
-            let (module_address, module_name, function_name, type_args, args) =
-                unpack_action_contract_args(post_action_args);
+            let (
+                module_address, module_name, function_name, type_args, args
+            ) = unpack_action_contract_args(post_action_args);
             cosmos::move_execute(
                 account,
                 module_address,
@@ -655,8 +660,8 @@ module skip::entry_point {
         to_address
     }
 
-    fun unpack_action_ibctransfer_args(action_args: vector<vector<u8>>):
-        (String, String, String) {
+    fun unpack_action_ibctransfer_args(action_args: vector<vector<u8>>)
+        : (String, String, String) {
         assert!(vector::length(&action_args) == 3, error::invalid_argument(0));
         let arg = vector::pop_back(&mut action_args);
         let memo: String = from_bcs::to_string(arg);
@@ -669,7 +674,9 @@ module skip::entry_point {
 
     fun unpack_action_contract_args(
         action_args: vector<vector<u8>>
-    ): (address, String, String, vector<String>, vector<vector<u8>>) {
+    ): (
+        address, String, String, vector<String>, vector<vector<u8>>
+    ) {
         assert!(vector::length(&action_args) == 5, error::invalid_argument(0));
         let arg = vector::pop_back(&mut action_args);
         let args: vector<vector<u8>> = from_bcs::to_vector_bytes(arg);
@@ -682,11 +689,13 @@ module skip::entry_point {
         let arg = vector::pop_back(&mut action_args);
         let module_address: address = from_bcs::to_address(arg);
 
-        (module_address, module_name, function_name, type_args, args)
+        (
+            module_address, module_name, function_name, type_args, args
+        )
     }
 
-    fun unpack_action_opbridge_args(action_args: vector<vector<u8>>):
-        (u64, String, vector<u8>) {
+    fun unpack_action_opbridge_args(action_args: vector<vector<u8>>)
+        : (u64, String, vector<u8>) {
         assert!(vector::length(&action_args) == 3, error::invalid_argument(0));
         let arg = vector::pop_back(&mut action_args);
         let data = from_bcs::to_bytes(arg);
@@ -700,7 +709,17 @@ module skip::entry_point {
 
     fun unpack_action_oft_send_withdraw_args(
         action_args: vector<vector<u8>>
-    ): (address, u32, vector<u8>, u64, vector<u8>, vector<u8>, vector<u8>, u64, u64) {
+    ): (
+        address,
+        u32,
+        vector<u8>,
+        u64,
+        vector<u8>,
+        vector<u8>,
+        vector<u8>,
+        u64,
+        u64
+    ) {
         assert!(vector::length(&action_args) == 9, error::invalid_argument(0));
         let arg = vector::pop_back(&mut action_args);
         let zro_fee = from_bcs::to_u64(arg);
@@ -1261,7 +1280,11 @@ module skip::entry_point {
     }
 
     #[test_only]
-    use initia_std::coin::{BurnCapability, FreezeCapability, MintCapability};
+    use initia_std::coin::{
+        BurnCapability,
+        FreezeCapability,
+        MintCapability
+    };
 
     #[test_only]
     use initia_std::primary_fungible_store;
@@ -1366,7 +1389,12 @@ module skip::entry_point {
         let data = b"abc";
         let req =
             create_json_msg_initiate_token_deposit(
-                sender, bridge_id, to, metadata, amount, data
+                sender,
+                bridge_id,
+                to,
+                metadata,
+                amount,
+                data
             );
         assert!(
             req

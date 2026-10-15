@@ -205,8 +205,7 @@ module skip::initia_clamm {
     }
 
     fun get_spot_price_(
-        pools: vector<Object<Pool>>,
-        coins: vector<Object<Metadata>>
+        pools: vector<Object<Pool>>, coins: vector<Object<Metadata>>
     ): BigDecimal {
         let swap_length = vector::length<Object<Pool>>(&pools);
         let i = 0;
@@ -308,17 +307,21 @@ module skip::initia_clamm {
     // ============================================
     // Tests
     // ============================================
-
     #[test_only]
     use initia_std::primary_fungible_store;
+
     #[test_only]
     use std::account;
+
     #[test_only]
     use std::comparator;
+
     #[test_only]
     use dex_manager::manager;
+
     #[test_only]
     use move_int::i64;
+
     #[test_only]
     use fixed_point64::fixed_point64;
 
