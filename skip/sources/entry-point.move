@@ -23,6 +23,7 @@ module skip::entry_point {
     use skip::initia_minitswap;
     use skip::iusd_vault;
     use skip::initia_clamm::{Self, denom_to_address};
+    use skip::usdc_reserve;
 
     struct SimulateSwapExactAssetInResponse has drop {
         amount_out: u64,
@@ -69,6 +70,7 @@ module skip::entry_point {
     const INITIA_MINITSWAP: u8 = 2;
     const IUSD_VAULT: u8 = 3;
     const INITIA_CLAMM: u8 = 4;
+    const USDC_RESERVE: u8 = 5;
 
     const EKEY_ALREADY_EXISTS: u64 = 0;
     const EKEY_NOT_FOUND: u64 = 1;
@@ -82,6 +84,7 @@ module skip::entry_point {
     const EINVALID_POOLS_LENGTH: u64 = 9;
     const EINVALID_COINS_LENGTH: u64 = 10;
     const EINVALID_ARGUMENTS: u64 = 11;
+    const EZERO_BALANCE: u64 = 12;
 
     const SWAP_FUNCTION_SWAP_EXACT_ASSET_IN: u8 = 0;
     const SWAP_FUNCTION_SWAP_EXACT_ASSET_OUT: u8 = 1;
@@ -242,6 +245,42 @@ module skip::entry_point {
             account,
             json::marshal(&swap_and_action_msg),
             cosmos::allow_failure_with_callback(callback_id, fid)
+        );
+    }
+
+    /// Same as `swap_and_action_with_recover`, but `amount_in` is the account's whole
+    /// balance of `coins[0][0]`, so an IBC hook swaps and recovers what actually arrived.
+    /// Only support swap_exact_asset_in
+    public entry fun swap_and_action_with_recover_from_balance(
+        account: &signer,
+        venues: vector<u8>,
+        function: u8,
+        // this is used as min_amount in swap_exact_asset_in
+        amount_out: u64,
+        pools: vector<vector<String>>,
+        coins: vector<vector<String>>,
+        post_action: u8,
+        timeout_timestamp: u64,
+        recover_address: String,
+        post_action_args: vector<vector<u8>>
+    ) {
+        let coin_in: Object<Metadata> =
+            coin::denom_to_metadata(*vector::borrow(vector::borrow(&coins, 0), 0));
+        let amount_in = coin::balance(signer::address_of(account), coin_in);
+        assert!(amount_in > 0, error::invalid_argument(EZERO_BALANCE));
+
+        swap_and_action_with_recover(
+            account,
+            venues,
+            function,
+            amount_in,
+            amount_out,
+            pools,
+            coins,
+            post_action,
+            timeout_timestamp,
+            recover_address,
+            post_action_args
         );
     }
 
@@ -468,6 +507,8 @@ module skip::entry_point {
                 |pool| object::address_to_object(denom_to_address(pool))
             );
             initia_clamm::swap_exact_asset_in(account, amount, pools, coins, min_amount)
+        } else if (venue == USDC_RESERVE) {
+            usdc_reserve::swap_exact_asset_in(account, amount, vector[], coins, min_amount)
         } else {
             abort error::invalid_argument(EINVALID_SWAP_VENUE)
         }
@@ -1117,6 +1158,10 @@ module skip::entry_point {
                 amount = initia_clamm::simulate_swap_exact_asset_in(
                     amount, pools_i, coins_i
                 );
+            } else if (venue == USDC_RESERVE) {
+                amount = usdc_reserve::simulate_swap_exact_asset_in(
+                    amount, pools_i, coins_i
+                );
             } else {
                 abort error::invalid_argument(EINVALID_SWAP_VENUE)
             };
@@ -1179,6 +1224,10 @@ module skip::entry_point {
                 amount = initia_clamm::simulate_swap_exact_asset_out(
                     amount, pools_i, coins_i
                 );
+            } else if (venue == USDC_RESERVE) {
+                amount = usdc_reserve::simulate_swap_exact_asset_out(
+                    amount, pools_i, coins_i
+                );
             } else {
                 abort error::invalid_argument(EINVALID_SWAP_VENUE)
             };
@@ -1226,6 +1275,8 @@ module skip::entry_point {
                 price = iusd_vault::get_spot_price(pools_i, coins_i);
             } else if (venue == INITIA_CLAMM) {
                 price = initia_clamm::get_spot_price(pools_i, coins_i);
+            } else if (venue == USDC_RESERVE) {
+                price = usdc_reserve::get_spot_price(pools_i, coins_i);
             } else {
                 abort error::invalid_argument(EINVALID_SWAP_VENUE)
             };
@@ -1400,6 +1451,172 @@ module skip::entry_point {
             req
                 == b"{\"@type\":\"/opinit.ophost.v1.MsgInitiateTokenDeposit\",\"sender\":\"init1wacstzy7dep090k3fh2dw2rvn6vz5033un04tm\",\"bridge_id\":\"1\",\"to\":\"init1rh03awuuy7t82n4pmtdaa6gj4duneaj8gghkqp\",\"data\":\"YWJj\",\"amount\":{\"denom\":\"usdc\",\"amount\":\"1000000000\"}}",
             1
+        );
+    }
+
+    #[test_only]
+    use initia_std::managed_coin;
+
+    #[test(chain = @0x1, publisher = @usdc_reserve, user = @0xa11ce)]
+    fun test_swap_and_action_usdc_reserve(
+        chain: &signer, publisher: &signer, user: &signer
+    ) {
+        let (backing, legacy) =
+            usdc_reserve::init_reserve_for_test(chain, publisher, 1_000_000);
+        let user_addr = signer::address_of(user);
+        managed_coin::sudo_mint(chain, user_addr, backing, 1_000_000);
+
+        // wrap USDC.inj -> USDC, then transfer it. pools is one empty segment since the
+        // reserve has no pool.
+        let recipient = @0xb0b;
+        swap_and_action(
+            user,
+            vector[USDC_RESERVE],
+            SWAP_FUNCTION_SWAP_EXACT_ASSET_IN,
+            400_000,
+            400_000,
+            vector[vector[]],
+            vector[
+                vector[
+                    coin::metadata_to_denom(backing),
+                    coin::metadata_to_denom(legacy)
+                ]
+            ],
+            POST_ACTION_TRANSFER,
+            0,
+            address::to_sdk(user_addr),
+            pack_action_transfer_args(address::to_sdk(recipient))
+        );
+
+        assert!(coin::balance(user_addr, backing) == 600_000, 0);
+        assert!(coin::balance(recipient, legacy) == 400_000, 1);
+    }
+
+    #[test(chain = @0x1, publisher = @usdc_reserve)]
+    fun test_simulate_usdc_reserve(chain: &signer, publisher: &signer) {
+        let (backing, legacy) =
+            usdc_reserve::init_reserve_for_test(chain, publisher, 1_000_000);
+        let backing_denom = coin::metadata_to_denom(backing);
+        let legacy_denom = coin::metadata_to_denom(legacy);
+        let venues = vector[USDC_RESERVE];
+        let pools: vector<vector<String>> = vector[vector[]];
+        let coins = vector[vector[backing_denom, legacy_denom]];
+
+        assert!(
+            simulate_swap_exact_asset_in(123_456, venues, pools, coins) == 123_456,
+            0
+        );
+        assert!(
+            simulate_swap_exact_asset_out(654_321, venues, pools, coins) == 654_321,
+            1
+        );
+        assert!(
+            bigdecimal::eq(
+                get_spot_price(venues, pools, coins),
+                bigdecimal::one()
+            ),
+            2
+        );
+
+        // wrap then redeem as two segments
+        assert!(
+            simulate_swap_exact_asset_in(
+                123_456,
+                vector[USDC_RESERVE, USDC_RESERVE],
+                vector[vector[], vector[]],
+                vector[
+                    vector[backing_denom, legacy_denom],
+                    vector[legacy_denom, backing_denom]
+                ]
+            ) == 123_456,
+            3
+        );
+    }
+
+    #[test(chain = @0x1, publisher = @usdc_reserve, user = @0xa11ce)]
+    fun test_swap_and_action_with_recover_from_balance(
+        chain: &signer, publisher: &signer, user: &signer
+    ) {
+        let (backing, legacy) =
+            usdc_reserve::init_reserve_for_test(chain, publisher, 1_000_000);
+        let user_addr = signer::address_of(user);
+        // what actually landed, which can differ from the quote
+        managed_coin::sudo_mint(chain, user_addr, backing, 1_000_123);
+
+        let pools: vector<vector<String>> = vector[vector[]];
+        let coins = vector[
+            vector[
+                coin::metadata_to_denom(backing),
+                coin::metadata_to_denom(legacy)
+            ]
+        ];
+        let recover_address = address::to_sdk(@0xb0b);
+        let post_action_args = pack_action_transfer_args(recover_address);
+
+        swap_and_action_with_recover_from_balance(
+            user,
+            vector[USDC_RESERVE],
+            SWAP_FUNCTION_SWAP_EXACT_ASSET_IN,
+            1,
+            pools,
+            coins,
+            POST_ACTION_TRANSFER,
+            0,
+            recover_address,
+            post_action_args
+        );
+        // the same call with the balance passed as amount_in
+        swap_and_action_with_recover(
+            user,
+            vector[USDC_RESERVE],
+            SWAP_FUNCTION_SWAP_EXACT_ASSET_IN,
+            1_000_123,
+            1,
+            pools,
+            coins,
+            POST_ACTION_TRANSFER,
+            0,
+            recover_address,
+            post_action_args
+        );
+
+        let (msgs, _) = cosmos::requested_messages();
+        assert!(vector::length(&msgs) == 2, 0);
+        assert!(
+            vector::borrow(&msgs, 0) == vector::borrow(&msgs, 1),
+            1
+        );
+
+        // if swap_and_action fails, recover sends the whole balance
+        ack_callback::recover(user, 1, false);
+        assert!(coin::balance(@0xb0b, backing) == 1_000_123, 2);
+    }
+
+    #[test(chain = @0x1, publisher = @usdc_reserve, user = @0xa11ce)]
+    #[expected_failure(abort_code = 0x1000c, location = Self)]
+    fun test_swap_and_action_with_recover_from_balance_zero_balance(
+        chain: &signer, publisher: &signer, user: &signer
+    ) {
+        let (backing, legacy) =
+            usdc_reserve::init_reserve_for_test(chain, publisher, 1_000_000);
+        let recover_address = address::to_sdk(@0xb0b);
+
+        swap_and_action_with_recover_from_balance(
+            user,
+            vector[USDC_RESERVE],
+            SWAP_FUNCTION_SWAP_EXACT_ASSET_IN,
+            1,
+            vector[vector[]],
+            vector[
+                vector[
+                    coin::metadata_to_denom(backing),
+                    coin::metadata_to_denom(legacy)
+                ]
+            ],
+            POST_ACTION_TRANSFER,
+            0,
+            recover_address,
+            pack_action_transfer_args(recover_address)
         );
     }
 }
