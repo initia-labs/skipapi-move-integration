@@ -68,6 +68,8 @@ module skip::usdc_reserve {
         (response.amount_in, response.spot_price)
     }
 
+    // The simulate views only check the coin pair, not `is_redeemable` or the vault's
+    // inventory, so a quote does not guarantee the swap will execute.
     #[view]
     public fun simulate_swap_exact_asset_in(
         amount: u64, _pools: vector<String>, coins: vector<String>
