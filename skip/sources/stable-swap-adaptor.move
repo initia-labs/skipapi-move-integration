@@ -235,6 +235,7 @@ module skip::initia_stableswap {
 
     #[test_only]
     use initia_std::string;
+
     #[test_only]
     use initia_std::primary_fungible_store;
 

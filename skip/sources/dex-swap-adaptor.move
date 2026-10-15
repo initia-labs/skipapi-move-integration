@@ -157,7 +157,8 @@ module skip::initia_dex {
             let pair = vector::borrow(&pools, i);
             let coin_in_metadata = vector::borrow(&coins, i);
             spot_price = bigdecimal::mul(
-                spot_price, dex::get_spot_price_by_denom(*pair, *coin_in_metadata)
+                spot_price,
+                dex::get_spot_price_by_denom(*pair, *coin_in_metadata)
             );
             i = i + 1;
         };
@@ -207,8 +208,10 @@ module skip::initia_dex {
 
     #[test_only]
     use initia_std::string;
+
     #[test_only]
     use initia_std::primary_fungible_store;
+
     #[test_only]
     use initia_std::biguint;
 
@@ -373,8 +376,7 @@ module skip::initia_dex {
         let (pools, coins) = initialized_module_for_test(&chain);
         let expected_amount = simulate_swap_exact_asset_out_(996, pools, coins);
         assert!(
-            expected_amount >= 999 && expected_amount <= 1001,
-            0
+            expected_amount >= 999 && expected_amount <= 1001, 0
         );
     }
 }

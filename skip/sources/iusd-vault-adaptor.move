@@ -32,10 +32,7 @@ module skip::iusd_vault {
         coins: vector<Object<Metadata>>,
         min_amount: u64
     ) {
-        assert!(
-            vector::length(&coins) == 2,
-            error::invalid_state(EINVALID_ARGUMENTS)
-        );
+        assert!(vector::length(&coins) == 2, error::invalid_state(EINVALID_ARGUMENTS));
         assert!(amount >= min_amount, error::invalid_state(EMIN_AMOUNT));
 
         let coin_in_metadata = *vector::borrow<Object<Metadata>>(&coins, 0);
@@ -204,9 +201,7 @@ module skip::iusd_vault {
     }
 
     #[test(chain = @0x1, publisher = @vault)]
-    fun test_swap_exact_asset_in_mint(
-        chain: &signer, publisher: &signer
-    ) {
+    fun test_swap_exact_asset_in_mint(chain: &signer, publisher: &signer) {
         let (base, iusd) = initialized_module_for_test(chain, publisher);
         let addr = signer::address_of(chain);
 
@@ -225,19 +220,15 @@ module skip::iusd_vault {
 
         // after: base down, iUSD up 1:1
         assert!(
-            coin::balance(addr, base) == before_base - 1_000_000,
-            0
+            coin::balance(addr, base) == before_base - 1_000_000, 0
         );
         assert!(
-            coin::balance(addr, iusd) == before_iusd + 1_000_000,
-            1
+            coin::balance(addr, iusd) == before_iusd + 1_000_000, 1
         );
     }
 
     #[test(chain = @0x1, publisher = @vault)]
-    fun test_swap_exact_asset_in_burn(
-        chain: &signer, publisher: &signer
-    ) {
+    fun test_swap_exact_asset_in_burn(chain: &signer, publisher: &signer) {
         let (base, iusd) = initialized_module_for_test(chain, publisher);
         let addr = signer::address_of(chain);
 
@@ -264,12 +255,10 @@ module skip::iusd_vault {
 
         // after: iUSD down, base up 1:1
         assert!(
-            coin::balance(addr, iusd) == before_iusd - 1_500_000,
-            0
+            coin::balance(addr, iusd) == before_iusd - 1_500_000, 0
         );
         assert!(
-            coin::balance(addr, base) == before_base + 1_500_000,
-            1
+            coin::balance(addr, base) == before_base + 1_500_000, 1
         );
     }
 
@@ -291,12 +280,10 @@ module skip::iusd_vault {
         );
 
         assert!(
-            coin::balance(addr, base) == before_base - 777_777,
-            0
+            coin::balance(addr, base) == before_base - 777_777, 0
         );
         assert!(
-            coin::balance(addr, iusd) == before_iusd + 777_777,
-            1
+            coin::balance(addr, iusd) == before_iusd + 777_777, 1
         );
     }
 
